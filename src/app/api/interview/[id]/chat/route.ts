@@ -9,6 +9,8 @@ import { model } from "@/lib/ai";
 import {
   buildInterviewerMessages,
   buildTrainerMessages,
+  interviewerSystemPrompt,
+  trainerSystemPrompt,
   type EngineContext,
   type Mode,
   type TranscriptTurn,
@@ -60,6 +62,10 @@ export async function POST(
     text: t.text,
   }));
 
+  const system =
+    agent === "trainer"
+      ? trainerSystemPrompt(ctx)
+      : interviewerSystemPrompt(ctx);
   const messages =
     agent === "trainer"
       ? buildTrainerMessages(
@@ -71,6 +77,7 @@ export async function POST(
 
   const result = streamText({
     model,
+    system,
     messages,
     temperature: agent === "trainer" ? 0.4 : 0.7,
     onFinish: async ({ text }) => {

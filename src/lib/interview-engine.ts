@@ -4,9 +4,12 @@
 export type Mode = "practice" | "interview";
 export type Speaker = "interviewer" | "trainer" | "user" | "system";
 
-/** Minimal chat message shape compatible with the AI SDK `messages` input. */
+/** Minimal chat message shape compatible with the AI SDK `messages` input.
+ * NOTE: no "system" role here — the AI SDK / OpenAI responses API rejects a
+ * system message inside `messages`. The system prompt is passed separately via
+ * streamText({ system, messages }). */
 export type EngineMessage = {
-  role: "system" | "user" | "assistant";
+  role: "user" | "assistant";
   content: string;
 };
 
@@ -61,14 +64,13 @@ Then end with: "Now try saying it again in your own words." Keep it tight and en
 ${sharedContext(c)}`;
 }
 
-/** Build message array for the Interviewer's next turn from the transcript. */
+/** Build the user/assistant message array for the Interviewer's next turn.
+ * Pass interviewerSystemPrompt(c) separately as streamText's `system`. */
 export function buildInterviewerMessages(
   c: EngineContext,
   transcript: TranscriptTurn[],
 ): EngineMessage[] {
-  const messages: EngineMessage[] = [
-    { role: "system", content: interviewerSystemPrompt(c) },
-  ];
+  const messages: EngineMessage[] = [];
   for (const t of transcript) {
     if (t.speaker === "interviewer")
       messages.push({ role: "assistant", content: t.text });
@@ -85,14 +87,14 @@ export function buildInterviewerMessages(
   return messages;
 }
 
-/** Build messages for the Trainer to critique the latest Q/A pair. */
+/** Build the user message for the Trainer to critique the latest Q/A pair.
+ * Pass trainerSystemPrompt(c) separately as streamText's `system`. */
 export function buildTrainerMessages(
   c: EngineContext,
   question: string,
   answer: string,
 ): EngineMessage[] {
   return [
-    { role: "system", content: trainerSystemPrompt(c) },
     {
       role: "user",
       content: `INTERVIEWER QUESTION:\n${question}\n\nCANDIDATE ANSWER:\n${answer}`,

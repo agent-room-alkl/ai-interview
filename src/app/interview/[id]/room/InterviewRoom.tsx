@@ -1,6 +1,9 @@
 "use client";
-// T-07 (voice: always-on mic STT + streaming TTS + mute) & T-08 (barge-in).
+// T-07 (voice: always-on mic STT + streaming TTS + mute).
 // T-26: suggested industry / role questions as tappable chips.
+// T-31: turn-based capture (mic gated while AI speaks) to stop TTS self-echo /
+//       noise being logged as the candidate's answer on speaker devices; plus
+//       inline markdown rendering for chat bubbles.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { suggestedQuestionsForRole } from "@/lib/suggested-questions";
@@ -9,6 +12,15 @@ type Speaker = "interviewer" | "trainer" | "user";
 interface Msg {
   speaker: Speaker;
   text: string;
+}
+
+// Lightweight inline markdown: render **bold** as <strong> and drop the raw
+// asterisks. Newlines and "- " bullets are preserved by whitespace-pre-wrap.
+// No dangerouslySetInnerHTML — plain text split into React nodes.
+function renderRich(text: string) {
+  return text.split(/\*\*/).map((part, i) =>
+    i % 2 === 1 ? <strong key={i}>{part}</strong> : <span key={i}>{part}</span>,
+  );
 }
 
 export default function InterviewRoom({
@@ -43,6 +55,9 @@ export default function InterviewRoom({
   const ttsQueueRef = useRef<string[]>([]);
   const ttsPlayingRef = useRef(false);
   const cancelSpeakRef = useRef(false);
+  // Timestamp (ms) of when the AI last stopped speaking — used to keep the mic
+  // gated for a short cooldown so trailing TTS echo isn't captured as an answer.
+  const lastSpeakEndRef = useRef(0);
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -63,6 +78,7 @@ export default function InterviewRoom({
       audioRef.current.pause();
       audioRef.current.src = "";
     }
+    lastSpeakEndRef.current = Date.now();
     setAiSpeaking(false);
   }, []);
 
@@ -70,6 +86,7 @@ export default function InterviewRoom({
     if (ttsPlayingRef.current) return;
     const next = ttsQueueRef.current.shift();
     if (!next) {
+      lastSpeakEndRef.current = Date.now();
       setAiSpeaking(false);
       return;
     }
@@ -102,7 +119,10 @@ export default function InterviewRoom({
     } finally {
       ttsPlayingRef.current = false;
       if (!cancelSpeakRef.current) void playNext();
-      else setAiSpeaking(false);
+      else {
+        lastSpeakEndRef.current = Date.now();
+        setAiSpeaking(false);
+      }
     }
   }, [interviewId]);
 
@@ -241,30 +261,34 @@ export default function InterviewRoom({
 
     recog.onresult = (e) => {
       if (mutedRef.current) return;
+      // Turn-based capture. On speaker devices (no headphones) the mic hears the
+      // AI's own TTS and room noise; without acoustic echo cancellation the
+      // browser can't tell them from the candidate, so those got transcribed as
+      // the user's answer. Ignore the mic entirely while the AI is speaking,
+      // while a response is being generated, and for a short cooldown after TTS
+      // ends — then listen for the real answer.
+      if (
+        aiSpeakingRef.current ||
+        busyRef.current ||
+        Date.now() - lastSpeakEndRef.current < 800
+      ) {
+        setInterim("");
+        return;
+      }
       let finalText = "";
       let interimText = "";
-      let bestConfidence = 0;
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
         const piece = r[0]?.transcript ?? "";
-        const conf = typeof r[0]?.confidence === "number" ? r[0].confidence : 0;
-        bestConfidence = Math.max(bestConfidence, conf);
         if (r.isFinal) finalText += piece;
         else interimText += piece;
       }
-      // T-08 barge-in: ignore short/noisy fragments (room noise / TTS echo).
-      // Require a real phrase before cutting the AI off.
-      const interimTrim = interimText.trim();
       const finalTrim = finalText.trim();
-      const substantial =
-        interimTrim.length >= 12 ||
-        (finalTrim.length >= 8 && bestConfidence >= 0.4);
-      if (substantial && aiSpeakingRef.current) {
-        stopSpeaking();
-      }
       setInterim(interimText);
-      // Ignore tiny finals (noise / single syllables) so they don't advance the loop.
-      if (finalTrim.length >= 8) {
+      // Require a real multi-word phrase so single-token noise blips (a cough,
+      // a stray syllable) don't submit as an answer.
+      const wordCount = finalTrim ? finalTrim.split(/\s+/).length : 0;
+      if (finalTrim.length >= 8 && wordCount >= 2) {
         setInterim("");
         handleUserUtterance(finalText);
       }
@@ -394,7 +418,7 @@ export default function InterviewRoom({
               <div className="mb-0.5 text-[10px] uppercase tracking-wide opacity-60">
                 {m.speaker}
               </div>
-              {m.text || "…"}
+              {m.text ? renderRich(m.text) : "…"}
             </div>
           </div>
         ))}

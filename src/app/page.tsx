@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { UserButton } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
 
 const features = [
   {
@@ -18,7 +20,8 @@ const features = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const { userId } = await auth();
   return (
     <main className="min-h-dvh overflow-x-clip bg-[#f6f5f0] text-[#17201e]">
       <section className="safe-px relative mx-auto max-w-7xl px-4 pb-16 pt-4 sm:px-10 sm:pb-20 sm:pt-6 lg:px-16">
@@ -40,18 +43,32 @@ export default function Home() {
             >
               How it works
             </a>
-            <Link
-              className="min-h-11 px-1 py-2 transition-opacity hover:opacity-60"
-              href="/login"
-            >
-              Log in
-            </Link>
-            <Link
-              className="min-h-11 rounded-full bg-[#d7f16a] px-3.5 py-2.5 transition-transform hover:-translate-y-0.5 sm:px-4"
-              href="/signup"
-            >
-              Get started
-            </Link>
+            {userId ? (
+              <>
+                <Link
+                  className="min-h-11 px-1 py-2 transition-opacity hover:opacity-60"
+                  href="/dashboard"
+                >
+                  Dashboard
+                </Link>
+                <UserButton />
+              </>
+            ) : (
+              <>
+                <Link
+                  className="min-h-11 px-1 py-2 transition-opacity hover:opacity-60"
+                  href="/login"
+                >
+                  Log in
+                </Link>
+                <Link
+                  className="min-h-11 rounded-full bg-[#d7f16a] px-3.5 py-2.5 transition-transform hover:-translate-y-0.5 sm:px-4"
+                  href="/signup"
+                >
+                  Get started
+                </Link>
+              </>
+            )}
           </div>
         </nav>
 

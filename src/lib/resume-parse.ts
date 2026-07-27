@@ -1,9 +1,9 @@
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
 
 /**
  * Extract plain text from an uploaded résumé file (PDF or DOCX).
- * pdf-parse v2 uses the PDFParse class (not the v1 default function).
+ * pdf-parse v2 is loaded dynamically so /interview/new does not import
+ * pdfjs-dist at page-load time (avoids Vercel/serverless worker crashes).
  */
 export async function parseResumeFile(
   file: File,
@@ -13,6 +13,7 @@ export async function parseResumeFile(
 
   try {
     if (name.endsWith(".pdf") || file.type === "application/pdf") {
+      const { PDFParse } = await import("pdf-parse");
       const parser = new PDFParse({ data: buffer });
       try {
         const result = await parser.getText();

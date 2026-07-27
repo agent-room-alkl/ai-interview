@@ -1,6 +1,9 @@
 // T-06/T-07: POST /api/interview/[id]/tts  { text: string }
-// Returns spoken audio (mp3) for the given text via OpenAI TTS.
-// Called per-sentence by the room client so playback starts with low latency.
+// T-35 (Plan A): stream raw PCM (24 kHz, 16-bit signed LE, mono) straight from
+// OpenAI TTS to the client. The room player feeds these bytes into the Web
+// Audio API and schedules them gaplessly, so speech starts as soon as the first
+// bytes arrive instead of after a whole clip is generated — removing the
+// stop-start choppiness of the earlier per-clip mp3 approach.
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 
@@ -34,7 +37,9 @@ export async function POST(
       model: TTS_MODEL,
       voice: TTS_VOICE,
       input: text.slice(0, 4000),
-      response_format: "mp3",
+      // Raw PCM so the client can schedule audio as it streams in. OpenAI
+      // returns 24 kHz, 16-bit signed little-endian, mono.
+      response_format: "pcm",
     }),
   });
 
@@ -44,10 +49,11 @@ export async function POST(
     return new Response("tts_failed", { status: 502 });
   }
 
-  // Stream the audio straight through to the client.
+  // Stream the raw PCM straight through to the client as it arrives.
   return new Response(upstream.body, {
     headers: {
-      "Content-Type": "audio/mpeg",
+      "Content-Type": "audio/pcm",
+      "X-Sample-Rate": "24000",
       "Cache-Control": "no-store",
     },
   });

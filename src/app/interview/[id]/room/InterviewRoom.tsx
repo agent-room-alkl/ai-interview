@@ -54,12 +54,16 @@ export default function InterviewRoom({
   const mutedRef = useRef(muted);
   const aiSpeakingRef = useRef(aiSpeaking);
   const busyRef = useRef(busy);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Web Audio streaming playback (T-35, Plan A): PCM chunks are scheduled on a
+  // single continuous timeline so speech is gapless within and across chunks.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const nextStartRef = useRef(0); // AudioContext-time cursor for the next buffer
+  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const ttsAbortRef = useRef<AbortController | null>(null);
+  const drainingRef = useRef(false);
+  const endTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsQueueRef = useRef<string[]>([]);
-  const ttsPlayingRef = useRef(false);
   const ttsPendingRef = useRef("");
-  const ttsPrefetchRef = useRef<{ text: string; blob: Blob } | null>(null);
-  const ttsPrefetchingRef = useRef(false);
   const ttsFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelSpeakRef = useRef(false);
   // Timestamp (ms) of when the AI last stopped speaking — used to keep the mic
@@ -76,8 +80,14 @@ export default function InterviewRoom({
     busyRef.current = busy;
   }, [busy]);
 
-  // ---------- TTS (batched chunks + prefetch for smoother playback) ----------
-  const TTS_MIN_CHUNK = 100;
+  // ---------- TTS (streaming PCM → gapless Web Audio playback) ----------
+  // Text is still batched into ~sentence chunks to keep request count low, but
+  // each chunk's audio is streamed and scheduled onto one continuous timeline,
+  // so playback starts at the first bytes and never stops between chunks.
+  const TTS_MIN_CHUNK = 80;
+  const SAMPLE_RATE = 24000; // OpenAI pcm output rate
+  const SCHED_LEAD = 0.12; // seconds of head-start when (re)starting from idle
+  const BLOCK_BYTES = 9600; // ~200 ms of 24 kHz 16-bit mono before scheduling
 
   const clearTtsFlushTimer = useCallback(() => {
     if (ttsFlushTimerRef.current) {
@@ -86,97 +96,168 @@ export default function InterviewRoom({
     }
   }, []);
 
-  const fetchTtsBlob = useCallback(
-    async (text: string) => {
+  const getAudioCtx = useCallback(() => {
+    if (typeof window === "undefined") return null;
+    let ctx = audioCtxRef.current;
+    if (!ctx) {
+      const AC =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+      audioCtxRef.current = ctx;
+    }
+    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+    return ctx;
+  }, []);
+
+  // Schedule one block of 16-bit PCM samples at the running timeline cursor.
+  const scheduleBlock = useCallback(
+    (ctx: AudioContext, int16: Int16Array) => {
+      if (int16.length === 0) return;
+      const buf = ctx.createBuffer(1, int16.length, SAMPLE_RATE);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < int16.length; i++) ch[i] = int16[i] / 32768;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      const now = ctx.currentTime;
+      // Fresh start or underrun recovery: give a small lead so the first buffer
+      // isn't scheduled in the past.
+      if (nextStartRef.current < now + 0.02) nextStartRef.current = now + SCHED_LEAD;
+      const startAt = nextStartRef.current;
+      src.start(startAt);
+      nextStartRef.current = startAt + buf.duration;
+      activeSourcesRef.current.add(src);
+      src.onended = () => {
+        activeSourcesRef.current.delete(src);
+      };
+    },
+    [],
+  );
+
+  // Fetch one text chunk and schedule its PCM as it streams in. Resolves once
+  // the whole stream has been consumed and scheduled (not when it finishes
+  // playing) so the next chunk can be fetched while this one is still audible.
+  const streamChunk = useCallback(
+    async (ctx: AudioContext, text: string) => {
+      const ac = new AbortController();
+      ttsAbortRef.current = ac;
       const res = await fetch(`/api/interview/${interviewId}/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
+        signal: ac.signal,
       });
-      if (!res.ok) throw new Error("tts");
-      return res.blob();
-    },
-    [interviewId],
-  );
-
-  const prefetchNextTts = useCallback(async () => {
-    if (ttsPrefetchingRef.current || ttsPrefetchRef.current) return;
-    const next = ttsQueueRef.current[0];
-    if (!next || cancelSpeakRef.current) return;
-    ttsPrefetchingRef.current = true;
-    try {
-      const blob = await fetchTtsBlob(next);
-      if (!cancelSpeakRef.current && ttsQueueRef.current[0] === next) {
-        ttsPrefetchRef.current = { text: next, blob };
+      if (!res.ok || !res.body) throw new Error("tts");
+      const reader = res.body.getReader();
+      let leftover: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (cancelSpeakRef.current) {
+          await reader.cancel().catch(() => {});
+          return;
+        }
+        let bytes: Uint8Array<ArrayBufferLike> = value;
+        if (leftover.length) {
+          const merged = new Uint8Array(leftover.length + value.length);
+          merged.set(leftover);
+          merged.set(value, leftover.length);
+          bytes = merged;
+          leftover = new Uint8Array(0);
+        }
+        if (bytes.length >= BLOCK_BYTES) {
+          const usable = bytes.length - (bytes.length % 2);
+          // Copy to a fresh, 2-byte-aligned buffer before the Int16 view.
+          const int16 = new Int16Array(new Uint8Array(bytes.subarray(0, usable)).buffer);
+          scheduleBlock(ctx, int16);
+          leftover = usable < bytes.length ? bytes.slice(usable) : new Uint8Array(0);
+        } else {
+          leftover = bytes;
+        }
       }
-    } catch {
-      /* prefetch failed — playNext will fetch on demand */
-    } finally {
-      ttsPrefetchingRef.current = false;
-    }
-  }, [fetchTtsBlob]);
+      if (!cancelSpeakRef.current && leftover.length >= 2) {
+        const usable = leftover.length - (leftover.length % 2);
+        const int16 = new Int16Array(new Uint8Array(leftover.subarray(0, usable)).buffer);
+        scheduleBlock(ctx, int16);
+      }
+    },
+    [interviewId, scheduleBlock],
+  );
 
   const stopSpeaking = useCallback(() => {
     cancelSpeakRef.current = true;
     ttsQueueRef.current = [];
     ttsPendingRef.current = "";
-    ttsPrefetchRef.current = null;
-    ttsPrefetchingRef.current = false;
     clearTtsFlushTimer();
-    ttsPlayingRef.current = false;
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
+    if (endTimerRef.current) {
+      clearTimeout(endTimerRef.current);
+      endTimerRef.current = null;
     }
+    ttsAbortRef.current?.abort();
+    ttsAbortRef.current = null;
+    for (const src of activeSourcesRef.current) {
+      try {
+        src.stop();
+      } catch {
+        /* already stopped */
+      }
+      try {
+        src.disconnect();
+      } catch {
+        /* noop */
+      }
+    }
+    activeSourcesRef.current.clear();
+    const ctx = audioCtxRef.current;
+    if (ctx) nextStartRef.current = ctx.currentTime;
+    drainingRef.current = false;
     lastSpeakEndRef.current = Date.now();
     setAiSpeaking(false);
   }, [clearTtsFlushTimer]);
 
-  const playNext = useCallback(async () => {
-    if (ttsPlayingRef.current) return;
-    const next = ttsQueueRef.current.shift();
-    if (!next) {
-      lastSpeakEndRef.current = Date.now();
-      setAiSpeaking(false);
+  // Pull chunks off the queue and stream them back-to-back on the timeline.
+  const startDrain = useCallback(async () => {
+    if (drainingRef.current) return;
+    const ctx = getAudioCtx();
+    if (!ctx) {
+      ttsQueueRef.current = [];
       return;
     }
-    ttsPlayingRef.current = true;
+    drainingRef.current = true;
+    if (endTimerRef.current) {
+      clearTimeout(endTimerRef.current);
+      endTimerRef.current = null;
+    }
     setAiSpeaking(true);
-    void prefetchNextTts();
     try {
-      let blob: Blob;
-      const prefetched = ttsPrefetchRef.current;
-      if (prefetched?.text === next) {
-        blob = prefetched.blob;
-        ttsPrefetchRef.current = null;
-      } else {
-        blob = await fetchTtsBlob(next);
+      while (!cancelSpeakRef.current) {
+        const next = ttsQueueRef.current.shift();
+        if (!next) break;
+        try {
+          await streamChunk(ctx, next);
+        } catch (e) {
+          if (e instanceof Error && e.name === "AbortError") break;
+          /* one chunk failed — keep going with the rest */
+        }
       }
-      if (cancelSpeakRef.current) {
-        ttsPlayingRef.current = false;
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      const audio = audioRef.current ?? new Audio();
-      audioRef.current = audio;
-      audio.src = url;
-      await audio.play().catch(() => {});
-      await new Promise<void>((resolve) => {
-        audio.onended = () => resolve();
-        audio.onerror = () => resolve();
-      });
-      URL.revokeObjectURL(url);
-    } catch {
-      /* TTS unavailable — silent fallback to text only */
     } finally {
-      ttsPlayingRef.current = false;
-      if (!cancelSpeakRef.current) void playNext();
-      else {
-        lastSpeakEndRef.current = Date.now();
-        setAiSpeaking(false);
+      drainingRef.current = false;
+      if (!cancelSpeakRef.current) {
+        // Keep aiSpeaking true until the scheduled audio has actually drained.
+        const remainMs = Math.max(0, (nextStartRef.current - ctx.currentTime) * 1000) + 80;
+        endTimerRef.current = setTimeout(() => {
+          endTimerRef.current = null;
+          if (!drainingRef.current && ttsQueueRef.current.length === 0) {
+            lastSpeakEndRef.current = Date.now();
+            setAiSpeaking(false);
+          }
+        }, remainMs);
       }
     }
-  }, [fetchTtsBlob, prefetchNextTts]);
+  }, [getAudioCtx, streamChunk]);
 
   const flushSpeechPending = useCallback(
     (force = false) => {
@@ -187,10 +268,9 @@ export default function InterviewRoom({
       clearTtsFlushTimer();
       cancelSpeakRef.current = false;
       ttsQueueRef.current.push(pending);
-      void prefetchNextTts();
-      void playNext();
+      void startDrain();
     },
-    [clearTtsFlushTimer, playNext, prefetchNextTts],
+    [clearTtsFlushTimer, startDrain],
   );
 
   const enqueueSpeech = useCallback(
@@ -206,7 +286,7 @@ export default function InterviewRoom({
         return;
       }
       clearTtsFlushTimer();
-      ttsFlushTimerRef.current = setTimeout(() => flushSpeechPending(true), 500);
+      ttsFlushTimerRef.current = setTimeout(() => flushSpeechPending(true), 400);
     },
     [clearTtsFlushTimer, flushSpeechPending],
   );
@@ -462,6 +542,28 @@ export default function InterviewRoom({
   // Interviewer asks the first question on load (interview mode, empty transcript).
   useEffect(() => {
     if (messages.length === 0) void runAgent("interviewer", {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mobile browsers keep a new AudioContext suspended until a user gesture.
+  // Resume it on the first tap/keypress, and tear the context down on unmount.
+  useEffect(() => {
+    const resume = () => {
+      const ctx = audioCtxRef.current;
+      if (ctx && ctx.state === "suspended") void ctx.resume().catch(() => {});
+    };
+    window.addEventListener("pointerdown", resume);
+    window.addEventListener("keydown", resume);
+    return () => {
+      window.removeEventListener("pointerdown", resume);
+      window.removeEventListener("keydown", resume);
+      stopSpeaking();
+      const ctx = audioCtxRef.current;
+      if (ctx) {
+        void ctx.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

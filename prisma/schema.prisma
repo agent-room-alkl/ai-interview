@@ -1,11 +1,13 @@
-// Prisma schema for AI Interview
+// Prisma schema for AI Interview — uses dedicated schema on shared Postgres
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["ai_interview"]
 }
 
 model User {
@@ -15,20 +17,24 @@ model User {
   name         String?
   createdAt    DateTime    @default(now())
   interviews   Interview[]
+
+  @@schema("ai_interview")
 }
 
 model Interview {
-  id             String   @id @default(cuid())
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  candidateName  String
-  resumeText     String
-  resumeFileUrl  String?
-  targetRole     String?
-  mode           String // "practice" | "interview"
-  status         String   @default("draft") // draft | ready | in_progress | completed
-  createdAt      DateTime @default(now())
-  turns          Turn[]
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  candidateName String
+  resumeText    String
+  resumeFileUrl String?
+  targetRole    String?
+  mode          String // "practice" | "interview"
+  status        String   @default("draft") // draft | ready | in_progress | completed
+  createdAt     DateTime @default(now())
+  turns         Turn[]
+
+  @@schema("ai_interview")
 }
 
 model Turn {
@@ -39,4 +45,6 @@ model Turn {
   text        String
   audioUrl    String?
   createdAt   DateTime  @default(now())
+
+  @@schema("ai_interview")
 }

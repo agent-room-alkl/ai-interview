@@ -5,6 +5,8 @@ import type { NextAuthConfig } from "next-auth";
  * Used by middleware. Full providers live in auth.ts.
  */
 export const authConfig = {
+  // Prevent Auth.js "Configuration" / host mismatch errors in local + Vercel.
+  trustHost: true,
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [],

@@ -57,6 +57,10 @@ export default function InterviewRoom({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ttsQueueRef = useRef<string[]>([]);
   const ttsPlayingRef = useRef(false);
+  const ttsPendingRef = useRef("");
+  const ttsPrefetchRef = useRef<{ text: string; blob: Blob } | null>(null);
+  const ttsPrefetchingRef = useRef(false);
+  const ttsFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelSpeakRef = useRef(false);
   // Timestamp (ms) of when the AI last stopped speaking — used to keep the mic
   // gated for a short cooldown so trailing TTS echo isn't captured as an answer.
@@ -72,10 +76,53 @@ export default function InterviewRoom({
     busyRef.current = busy;
   }, [busy]);
 
-  // ---------- TTS (streaming, sentence-by-sentence) ----------
+  // ---------- TTS (batched chunks + prefetch for smoother playback) ----------
+  const TTS_MIN_CHUNK = 100;
+
+  const clearTtsFlushTimer = useCallback(() => {
+    if (ttsFlushTimerRef.current) {
+      clearTimeout(ttsFlushTimerRef.current);
+      ttsFlushTimerRef.current = null;
+    }
+  }, []);
+
+  const fetchTtsBlob = useCallback(
+    async (text: string) => {
+      const res = await fetch(`/api/interview/${interviewId}/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error("tts");
+      return res.blob();
+    },
+    [interviewId],
+  );
+
+  const prefetchNextTts = useCallback(async () => {
+    if (ttsPrefetchingRef.current || ttsPrefetchRef.current) return;
+    const next = ttsQueueRef.current[0];
+    if (!next || cancelSpeakRef.current) return;
+    ttsPrefetchingRef.current = true;
+    try {
+      const blob = await fetchTtsBlob(next);
+      if (!cancelSpeakRef.current && ttsQueueRef.current[0] === next) {
+        ttsPrefetchRef.current = { text: next, blob };
+      }
+    } catch {
+      /* prefetch failed — playNext will fetch on demand */
+    } finally {
+      ttsPrefetchingRef.current = false;
+    }
+  }, [fetchTtsBlob]);
+
   const stopSpeaking = useCallback(() => {
     cancelSpeakRef.current = true;
     ttsQueueRef.current = [];
+    ttsPendingRef.current = "";
+    ttsPrefetchRef.current = null;
+    ttsPrefetchingRef.current = false;
+    clearTtsFlushTimer();
     ttsPlayingRef.current = false;
     if (audioRef.current) {
       audioRef.current.pause();
@@ -83,7 +130,7 @@ export default function InterviewRoom({
     }
     lastSpeakEndRef.current = Date.now();
     setAiSpeaking(false);
-  }, []);
+  }, [clearTtsFlushTimer]);
 
   const playNext = useCallback(async () => {
     if (ttsPlayingRef.current) return;
@@ -95,14 +142,16 @@ export default function InterviewRoom({
     }
     ttsPlayingRef.current = true;
     setAiSpeaking(true);
+    void prefetchNextTts();
     try {
-      const res = await fetch(`/api/interview/${interviewId}/tts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: next }),
-      });
-      if (!res.ok) throw new Error("tts");
-      const blob = await res.blob();
+      let blob: Blob;
+      const prefetched = ttsPrefetchRef.current;
+      if (prefetched?.text === next) {
+        blob = prefetched.blob;
+        ttsPrefetchRef.current = null;
+      } else {
+        blob = await fetchTtsBlob(next);
+      }
       if (cancelSpeakRef.current) {
         ttsPlayingRef.current = false;
         return;
@@ -127,18 +176,44 @@ export default function InterviewRoom({
         setAiSpeaking(false);
       }
     }
-  }, [interviewId]);
+  }, [fetchTtsBlob, prefetchNextTts]);
+
+  const flushSpeechPending = useCallback(
+    (force = false) => {
+      const pending = ttsPendingRef.current.trim();
+      if (!pending) return;
+      if (!force && pending.length < TTS_MIN_CHUNK) return;
+      ttsPendingRef.current = "";
+      clearTtsFlushTimer();
+      cancelSpeakRef.current = false;
+      ttsQueueRef.current.push(pending);
+      void prefetchNextTts();
+      void playNext();
+    },
+    [clearTtsFlushTimer, playNext, prefetchNextTts],
+  );
 
   const enqueueSpeech = useCallback(
     (sentence: string) => {
       const s = sentence.trim();
       if (!s) return;
       cancelSpeakRef.current = false;
-      ttsQueueRef.current.push(s);
-      void playNext();
+      ttsPendingRef.current = ttsPendingRef.current
+        ? `${ttsPendingRef.current} ${s}`
+        : s;
+      if (ttsPendingRef.current.length >= TTS_MIN_CHUNK) {
+        flushSpeechPending(true);
+        return;
+      }
+      clearTtsFlushTimer();
+      ttsFlushTimerRef.current = setTimeout(() => flushSpeechPending(true), 500);
     },
-    [playNext],
+    [clearTtsFlushTimer, flushSpeechPending],
   );
+
+  const finalizeSpeech = useCallback(() => {
+    flushSpeechPending(true);
+  }, [flushSpeechPending]);
 
   const handleFinish = useCallback(() => {
     if (finishing || leavingRef.current) return;
@@ -221,6 +296,7 @@ export default function InterviewRoom({
         // speak any trailing text
         const tail = buffer.slice(spokenUpTo).trim();
         if (tail) enqueueSpeech(tail);
+        finalizeSpeech();
         if (agent === "interviewer") setLastQuestion(buffer);
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") return;
@@ -238,7 +314,7 @@ export default function InterviewRoom({
       }
       void idx;
     },
-    [interviewId, messages.length, enqueueSpeech],
+    [interviewId, messages.length, enqueueSpeech, finalizeSpeech],
   );
 
   const handleUserUtterance = useCallback(
@@ -272,6 +348,7 @@ export default function InterviewRoom({
       setMessages((m) => [...m, { speaker: "interviewer", text: question }]);
       setLastQuestion(question);
       enqueueSpeech(question);
+      finalizeSpeech();
       try {
         await fetch(`/api/interview/${interviewId}/chat`, {
           method: "POST",
@@ -284,7 +361,7 @@ export default function InterviewRoom({
         setBusy(false);
       }
     },
-    [interviewId, enqueueSpeech],
+    [interviewId, enqueueSpeech, finalizeSpeech],
   );
 
   // ---------- Speech recognition (always-on mic) ----------

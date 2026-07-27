@@ -11,9 +11,9 @@ datasource db {
 }
 
 model User {
-  id           String      @id @default(cuid())
+  id           String      @id // Clerk userId (user_…)
   email        String      @unique
-  passwordHash String
+  passwordHash String // unused under Clerk — written as "" for NOT NULL compat
   name         String?
   createdAt    DateTime    @default(now())
   interviews   Interview[]

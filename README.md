@@ -5,8 +5,8 @@ Voice-based AI interview practice app. Upload a résumé, pick a target role, th
 ## Stack
 
 - Next.js 15 (App Router) + TypeScript + Tailwind
-- Prisma + SQLite (dev) / Neon Postgres (prod-ready schema swap)
-- NextAuth v5 (credentials) — wired in later tasks
+- Prisma + Postgres (`ai_interview` schema)
+- Clerk authentication (`@clerk/nextjs`)
 - Vercel AI SDK via AI Gateway
 
 ## Setup
@@ -14,8 +14,8 @@ Voice-based AI interview practice app. Upload a résumé, pick a target role, th
 ```bash
 npm install
 cp .env.example .env
-# edit .env — at minimum set NEXTAUTH_SECRET and an AI key
-npx prisma migrate dev
+# edit .env — set Clerk keys + DATABASE_URL + an AI key
+npx prisma migrate deploy
 npm run dev
 ```
 
@@ -36,9 +36,10 @@ Open [http://localhost:3000](http://localhost:3000).
 src/app/          # App Router pages & API routes
 src/lib/prisma.ts # Prisma client singleton
 src/lib/ai.ts     # Shared LLM model helper
+src/lib/auth.ts   # Clerk session → Prisma user bridge
 prisma/           # Schema + migrations
 ```
 
 ## Environment
 
-See `.env.example` for `DATABASE_URL`, `NEXTAUTH_*`, `AI_GATEWAY_API_KEY` / `OPENAI_API_KEY`.
+See `.env.example` for `DATABASE_URL`, Clerk keys (`NEXT_PUBLIC_CLERK_*` / `CLERK_SECRET_KEY`), and `AI_GATEWAY_API_KEY` / `OPENAI_API_KEY`.

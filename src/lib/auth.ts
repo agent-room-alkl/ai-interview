@@ -1,29 +1,56 @@
-import NextAuth from "next-auth";
-import Credentials from "next-auth/providers/credentials";
-import { compare } from "bcryptjs";
+import { auth as clerkAuth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { authConfig } from "@/lib/auth.config";
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
-  ...authConfig,
-  providers: [
-    Credentials({
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        const email =
-          typeof credentials?.email === "string"
-            ? credentials.email.trim().toLowerCase()
-            : "";
-        const password =
-          typeof credentials?.password === "string" ? credentials.password : "";
-        if (!email || !password) return null;
-        const user = await prisma.user.findUnique({ where: { email } });
-        if (!user || !(await compare(password, user.passwordHash))) return null;
-        return { id: user.id, email: user.email, name: user.name };
-      },
-    }),
-  ],
-});
+export type AppSession = {
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+  };
+};
+
+/**
+ * App-level auth: Clerk session + ensure a matching Prisma User row
+ * (User.id === Clerk userId for ownership checks).
+ */
+export async function auth(): Promise<AppSession | null> {
+  const { userId } = await clerkAuth();
+  if (!userId) return null;
+
+  const clerkUser = await currentUser();
+  const email =
+    clerkUser?.primaryEmailAddress?.emailAddress ??
+    clerkUser?.emailAddresses?.[0]?.emailAddress ??
+    `${userId}@users.clerk`;
+  const name =
+    [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") ||
+    clerkUser?.username ||
+    null;
+
+  // Migrate legacy NextAuth rows (cuid id) that share this email onto Clerk userId.
+  const existingByEmail = await prisma.user.findUnique({ where: { email } });
+  if (existingByEmail && existingByEmail.id !== userId) {
+    await prisma.interview.updateMany({
+      where: { userId: existingByEmail.id },
+      data: { userId },
+    });
+    await prisma.user.delete({ where: { id: existingByEmail.id } });
+  }
+
+  await prisma.user.upsert({
+    where: { id: userId },
+    create: {
+      id: userId,
+      email,
+      name,
+      // Clerk owns credentials; legacy column kept for schema compat.
+      passwordHash: "",
+    },
+    update: {
+      email,
+      ...(name ? { name } : {}),
+    },
+  });
+
+  return { user: { id: userId, email, name } };
+}

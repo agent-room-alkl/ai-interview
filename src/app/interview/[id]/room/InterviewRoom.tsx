@@ -209,17 +209,28 @@ export default function InterviewRoom({
       if (mutedRef.current) return;
       let finalText = "";
       let interimText = "";
+      let bestConfidence = 0;
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
-        if (r.isFinal) finalText += r[0].transcript;
-        else interimText += r[0].transcript;
+        const piece = r[0]?.transcript ?? "";
+        const conf = typeof r[0]?.confidence === "number" ? r[0].confidence : 0;
+        bestConfidence = Math.max(bestConfidence, conf);
+        if (r.isFinal) finalText += piece;
+        else interimText += piece;
       }
-      // T-08 barge-in: any speech while AI is talking cuts it off.
-      if ((interimText || finalText) && aiSpeakingRef.current) {
+      // T-08 barge-in: ignore short/noisy fragments (room noise / TTS echo).
+      // Require a real phrase before cutting the AI off.
+      const interimTrim = interimText.trim();
+      const finalTrim = finalText.trim();
+      const substantial =
+        interimTrim.length >= 12 ||
+        (finalTrim.length >= 8 && bestConfidence >= 0.4);
+      if (substantial && aiSpeakingRef.current) {
         stopSpeaking();
       }
       setInterim(interimText);
-      if (finalText.trim()) {
+      // Ignore tiny finals (noise / single syllables) so they don't advance the loop.
+      if (finalTrim.length >= 8) {
         setInterim("");
         handleUserUtterance(finalText);
       }

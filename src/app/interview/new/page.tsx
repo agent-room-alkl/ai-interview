@@ -8,12 +8,12 @@ export default async function NewInterviewPage() {
   if (!session?.user) redirect("/login");
 
   return (
-    <main className="min-h-screen bg-[#f6f5f0] px-6 py-10 text-[#17201e] sm:px-10">
+    <main className="min-h-dvh bg-[#f6f5f0] px-4 py-8 text-[#17201e] sm:px-10 sm:py-10">
       <div className="mx-auto max-w-2xl">
-        <Link href="/dashboard" className="text-sm text-[#65736d] hover:opacity-70">
+        <Link href="/dashboard" className="inline-flex min-h-11 items-center text-sm text-[#65736d] hover:opacity-70">
           ← Dashboard
         </Link>
-        <h1 className="mt-4 text-5xl font-semibold tracking-[-0.07em]">
+        <h1 className="mt-4 text-4xl font-semibold tracking-[-0.07em] sm:text-5xl">
           Create interview
         </h1>
         <p className="mt-4 text-[#65736d]">

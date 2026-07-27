@@ -29,15 +29,15 @@ export function CreateInterviewForm() {
           name="candidateName"
           required
           placeholder="Your full name"
-          className="mt-2 w-full rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3 text-[#17201e] outline-none focus:border-[#17201e]"
+          className="mt-2 min-h-11 w-full rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3 text-base text-[#17201e] outline-none focus:border-[#17201e] sm:text-sm"
         />
       </label>
 
       <fieldset className="space-y-3">
         <legend className="text-sm font-medium text-[#65736d]">Mode</legend>
-        <div className="flex flex-wrap gap-4">
-          <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3">
-            <input type="radio" name="mode" value="practice" defaultChecked />
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4">
+          <label className="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3 sm:flex-1">
+            <input type="radio" name="mode" value="practice" defaultChecked className="size-4 shrink-0" />
             <span>
               <span className="font-semibold">Practice</span>
               <span className="mt-0.5 block text-xs text-[#65736d]">
@@ -45,8 +45,8 @@ export function CreateInterviewForm() {
               </span>
             </span>
           </label>
-          <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3">
-            <input type="radio" name="mode" value="interview" />
+          <label className="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3 sm:flex-1">
+            <input type="radio" name="mode" value="interview" className="size-4 shrink-0" />
             <span>
               <span className="font-semibold">Interview</span>
               <span className="mt-0.5 block text-xs text-[#65736d]">
@@ -84,7 +84,7 @@ export function CreateInterviewForm() {
       <button
         type="submit"
         disabled={pending}
-        className="rounded-full bg-[#17201e] px-6 py-3.5 text-sm font-semibold text-[#f6f5f0] disabled:opacity-60"
+        className="min-h-12 w-full rounded-full bg-[#17201e] px-6 py-3.5 text-sm font-semibold text-[#f6f5f0] disabled:opacity-60 sm:w-auto"
       >
         {pending ? "Creating…" : "Continue to role selection →"}
       </button>

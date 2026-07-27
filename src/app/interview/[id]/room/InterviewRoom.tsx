@@ -293,13 +293,13 @@ export default function InterviewRoom({
     !!(window.SpeechRecognition ?? window.webkitSpeechRecognition);
 
   return (
-    <div className="mx-auto flex h-screen max-w-3xl flex-col p-4">
-      <header className="flex items-center justify-between border-b pb-3">
-        <div>
-          <h1 className="font-semibold">
+    <div className="safe-pt safe-px mx-auto flex h-dvh max-w-3xl flex-col px-3 sm:px-4">
+      <header className="flex flex-col gap-3 border-b border-gray-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold sm:text-lg">
             {mode === "practice" ? "Practice" : "Interview"} · {targetRole}
           </h1>
-          <p className="text-xs text-gray-500">
+          <p className="truncate text-xs text-gray-500">
             {candidateName} ·{" "}
             {aiSpeaking
               ? "AI speaking…"
@@ -310,22 +310,24 @@ export default function InterviewRoom({
                   : "idle"}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <button
+            type="button"
             onClick={toggleMute}
-            className={`rounded-lg px-4 py-2 text-sm font-medium ${
+            className={`min-h-11 flex-1 rounded-xl px-4 py-2.5 text-sm font-medium sm:flex-none ${
               muted ? "bg-red-600 text-white" : "border border-gray-300"
             }`}
           >
             {muted ? "Unmute" : "Mute"}
           </button>
           <button
+            type="button"
             onClick={() => {
               stopSpeaking();
               recogRef.current?.abort();
               router.push(`/interview/${interviewId}/report`);
             }}
-            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white"
+            className="min-h-11 flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white sm:flex-none"
           >
             Finish
           </button>
@@ -333,21 +335,21 @@ export default function InterviewRoom({
       </header>
 
       {!supported && (
-        <div className="mt-2 rounded bg-amber-50 p-2 text-xs text-amber-800">
+        <div className="mt-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">
           This browser doesn’t support speech recognition — use Chrome, or type
           your answers below. (Headphones recommended so the mic doesn’t hear the
           AI.)
         </div>
       )}
 
-      <div className="flex-1 space-y-3 overflow-y-auto py-4">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-4">
         {messages.map((m, i) => (
           <div
             key={i}
             className={`flex ${m.speaker === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm ${
+              className={`max-w-[min(85%,24rem)] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[80%] sm:px-4 ${
                 m.speaker === "user"
                   ? "bg-indigo-600 text-white"
                   : m.speaker === "trainer"
@@ -364,7 +366,7 @@ export default function InterviewRoom({
         ))}
         {interim && (
           <div className="flex justify-end">
-            <div className="max-w-[80%] rounded-2xl bg-indigo-600/40 px-4 py-2 text-sm text-white">
+            <div className="max-w-[min(85%,24rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[80%] sm:px-4">
               {interim}
             </div>
           </div>
@@ -388,7 +390,7 @@ function TypeFallback({
   const [val, setVal] = useState("");
   return (
     <form
-      className="flex gap-2 border-t pt-3"
+      className="safe-pb flex gap-2 border-t border-gray-200 bg-[#f6f5f0] pt-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (val.trim()) {
@@ -402,14 +404,15 @@ function TypeFallback({
         onChange={(e) => setVal(e.target.value)}
         placeholder={
           mode === "practice"
-            ? "Speak, or type your answer for the trainer to coach…"
-            : "Speak, or type your answer…"
+            ? "Type your answer…"
+            : "Speak, or type…"
         }
-        className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        className="min-h-11 min-w-0 flex-1 rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-base sm:text-sm"
       />
       <button
+        type="submit"
         disabled={disabled}
-        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+        className="min-h-11 shrink-0 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-40"
       >
         Send
       </button>

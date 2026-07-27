@@ -60,18 +60,18 @@ export default function ReportView({
     );
 
   return (
-    <div className="mx-auto max-w-3xl p-6 print:p-0">
-      <div className="flex items-end justify-between border-b-2 border-gray-900 pb-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Interview Report</h1>
-          <p className="text-sm text-gray-500">
+    <div className="safe-px mx-auto max-w-3xl px-4 py-6 sm:p-6 print:p-0">
+      <div className="flex flex-col gap-4 border-b-2 border-gray-900 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold sm:text-2xl">Interview Report</h1>
+          <p className="mt-1 break-words text-sm text-gray-500">
             {candidateName} · {targetRole} · {mode}
           </p>
         </div>
-        <div className="text-right">
+        <div className="sm:text-right">
           <div className="text-xs text-gray-500">Overall</div>
           <div
-            className="text-5xl font-bold"
+            className="text-4xl font-bold sm:text-5xl"
             style={{ color: color(report.overallScore) }}
           >
             {report.overallScore}
@@ -88,9 +88,9 @@ export default function ReportView({
         <b>Dimensions</b>
         {report.dimensions.map((d) => (
           <div key={d.name} className="mt-3">
-            <div className="flex justify-between font-medium">
-              <span>{d.name}</span>
-              <span>{d.score}</span>
+            <div className="flex justify-between gap-3 font-medium">
+              <span className="min-w-0 break-words">{d.name}</span>
+              <span className="shrink-0">{d.score}</span>
             </div>
             <div className="mt-1 h-2 overflow-hidden rounded bg-gray-200">
               <div
@@ -122,16 +122,17 @@ export default function ReportView({
         </div>
       </div>
 
-      <div className="mt-6 flex gap-3 print:hidden">
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row print:hidden">
         <a
           href={`/api/interview/${interviewId}/report/html`}
-          className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white"
+          className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white"
         >
           Download HTML
         </a>
         <button
+          type="button"
           onClick={() => window.print()}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium"
+          className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-medium"
         >
           Download PDF
         </button>

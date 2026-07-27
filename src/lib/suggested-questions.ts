@@ -13,7 +13,9 @@ function isTech(role: string) {
 }
 
 function isProduct(role: string) {
-  return /product|pm\b|product manager/i.test(role);
+  // Exclude design titles like "Product Designer" (handled by isDesign).
+  if (isDesign(role)) return false;
+  return /product manager|product owner|\bpm\b|product\b/i.test(role);
 }
 
 function isDesign(role: string) {
@@ -78,30 +80,7 @@ export function suggestedQuestionsForRole(targetRole: string): SuggestedQuestion
     ];
   }
 
-  if (isProduct(role)) {
-    return [
-      {
-        id: "prioritization",
-        label: "Prioritization",
-        question:
-          "How do you prioritize a roadmap when engineering capacity is limited and stakeholders disagree?",
-      },
-      {
-        id: "metrics",
-        label: "Success metrics",
-        question:
-          "Tell me about a product you shipped. How did you define and measure success?",
-      },
-      {
-        id: "discovery",
-        label: "User discovery",
-        question:
-          "Describe how you validate a product idea before committing engineering resources.",
-      },
-      ...common,
-    ];
-  }
-
+  // Design before Product — "Product Designer" must not match PM chips.
   if (isDesign(role)) {
     return [
       {
@@ -121,6 +100,30 @@ export function suggestedQuestionsForRole(targetRole: string): SuggestedQuestion
         label: "Accessibility",
         question:
           "How do you incorporate accessibility and inclusive design into your work?",
+      },
+      ...common,
+    ];
+  }
+
+  if (isProduct(role)) {
+    return [
+      {
+        id: "prioritization",
+        label: "Prioritization",
+        question:
+          "How do you prioritize a roadmap when engineering capacity is limited and stakeholders disagree?",
+      },
+      {
+        id: "metrics",
+        label: "Success metrics",
+        question:
+          "Tell me about a product you shipped. How did you define and measure success?",
+      },
+      {
+        id: "discovery",
+        label: "User discovery",
+        question:
+          "Describe how you validate a product idea before committing engineering resources.",
       },
       ...common,
     ];

@@ -11,8 +11,8 @@ const initial: CreateInterviewState = {};
 export function CreateInterviewForm() {
   const [state, formAction, pending] = useActionState(createInterview, initial);
 
+  // React sets method/encType automatically for Server Action forms — do not set encType.
   return (
-    {/* React sets method/encType automatically for Server Action forms — do not set encType. */}
     <form action={formAction} className="mt-10 space-y-8">
       {state.error ? (
         <p

@@ -5,11 +5,7 @@ import mammoth from "mammoth";
  * extraction. Vercel Node functions don't provide them → DOMMatrix ReferenceError.
  */
 function ensurePdfDomPolyfills() {
-  const g = globalThis as typeof globalThis & {
-    DOMMatrix?: unknown;
-    ImageData?: unknown;
-    Path2D?: unknown;
-  };
+  const g = globalThis as Record<string, unknown>;
 
   if (typeof g.DOMMatrix === "undefined") {
     g.DOMMatrix = class DOMMatrix {

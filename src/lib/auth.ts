@@ -27,16 +27,7 @@ export async function auth(): Promise<AppSession | null> {
     clerkUser?.username ||
     null;
 
-  // Migrate legacy NextAuth rows (cuid id) that share this email onto Clerk userId.
-  const existingByEmail = await prisma.user.findUnique({ where: { email } });
-  if (existingByEmail && existingByEmail.id !== userId) {
-    await prisma.interview.updateMany({
-      where: { userId: existingByEmail.id },
-      data: { userId },
-    });
-    await prisma.user.delete({ where: { id: existingByEmail.id } });
-  }
-
+  // Upsert the Clerk user row first so FK constraints are satisfied.
   await prisma.user.upsert({
     where: { id: userId },
     create: {
@@ -51,6 +42,17 @@ export async function auth(): Promise<AppSession | null> {
       ...(name ? { name } : {}),
     },
   });
+
+  // Migrate legacy NextAuth rows (cuid id) that share this email onto Clerk userId.
+  // Must happen AFTER the new user row exists to satisfy Interview_userId_fkey.
+  const existingByEmail = await prisma.user.findUnique({ where: { email } });
+  if (existingByEmail && existingByEmail.id !== userId) {
+    await prisma.interview.updateMany({
+      where: { userId: existingByEmail.id },
+      data: { userId },
+    });
+    await prisma.user.delete({ where: { id: existingByEmail.id } });
+  }
 
   return { user: { id: userId, email, name } };
 }

@@ -43,11 +43,14 @@ export default function InterviewRoom({
   const [interim, setInterim] = useState("");
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [lastQuestion, setLastQuestion] = useState<string>(
     initialTurns.filter((t) => t.speaker === "interviewer").at(-1)?.text ?? "",
   );
 
   const recogRef = useRef<SpeechRecognitionLike | null>(null);
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const leavingRef = useRef(false);
   const mutedRef = useRef(muted);
   const aiSpeakingRef = useRef(aiSpeaking);
   const busyRef = useRef(busy);
@@ -137,12 +140,47 @@ export default function InterviewRoom({
     [playNext],
   );
 
+  const handleFinish = useCallback(() => {
+    if (finishing || leavingRef.current) return;
+    leavingRef.current = true;
+    setFinishing(true);
+    stopSpeaking();
+    chatAbortRef.current?.abort();
+    setBusy(false);
+    const recog = recogRef.current;
+    if (recog) {
+      recog.onend = null;
+      try {
+        recog.stop();
+      } catch {
+        /* not running */
+      }
+      try {
+        recog.abort();
+      } catch {
+        /* already stopped */
+      }
+    }
+    const reportUrl = `/interview/${interviewId}/report`;
+    router.push(reportUrl);
+    // Client navigation can stall while a chat stream is open — hard fallback.
+    window.setTimeout(() => {
+      if (window.location.pathname.includes("/room")) {
+        window.location.assign(reportUrl);
+      }
+    }, 1200);
+  }, [finishing, interviewId, router, stopSpeaking]);
+
   // ---------- Chat (streaming text from an agent) ----------
   const runAgent = useCallback(
     async (
       agent: "interviewer" | "trainer",
       opts: { userText?: string; question?: string; answer?: string },
     ) => {
+      if (leavingRef.current) return;
+      chatAbortRef.current?.abort();
+      const ac = new AbortController();
+      chatAbortRef.current = ac;
       setBusy(true);
       cancelSpeakRef.current = false;
       const idx = messages.length + (opts.userText ? 1 : 0);
@@ -159,6 +197,7 @@ export default function InterviewRoom({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ agent, ...opts }),
+          signal: ac.signal,
         });
         if (!res.ok || !res.body) throw new Error("chat");
         const reader = res.body.getReader();
@@ -183,7 +222,8 @@ export default function InterviewRoom({
         const tail = buffer.slice(spokenUpTo).trim();
         if (tail) enqueueSpeech(tail);
         if (agent === "interviewer") setLastQuestion(buffer);
-      } catch {
+      } catch (e) {
+        if (e instanceof Error && e.name === "AbortError") return;
         setMessages((m) => {
           const copy = [...m];
           copy[copy.length - 1] = {
@@ -193,6 +233,7 @@ export default function InterviewRoom({
           return copy;
         });
       } finally {
+        if (chatAbortRef.current === ac) chatAbortRef.current = null;
         setBusy(false);
       }
       void idx;
@@ -295,6 +336,7 @@ export default function InterviewRoom({
     };
     recog.onend = () => {
       setListening(false);
+      if (leavingRef.current) return;
       // auto-restart unless muted (keeps the mic always-on)
       if (!mutedRef.current) {
         try {
@@ -380,14 +422,11 @@ export default function InterviewRoom({
           </button>
           <button
             type="button"
-            onClick={() => {
-              stopSpeaking();
-              recogRef.current?.abort();
-              router.push(`/interview/${interviewId}/report`);
-            }}
-            className="min-h-11 flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white sm:flex-none"
+            disabled={finishing}
+            onClick={handleFinish}
+            className="min-h-11 flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60 sm:flex-none"
           >
-            Finish
+            {finishing ? "Finishing…" : "Finish"}
           </button>
         </div>
       </header>

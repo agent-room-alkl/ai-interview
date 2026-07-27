@@ -38,6 +38,23 @@ export async function POST(
   const body = await req.json();
   const agent: "interviewer" | "trainer" = body.agent ?? "interviewer";
 
+  // Preset question chip: persist + stream exact interviewer text (no LLM).
+  const preset = typeof body.presetQuestion === "string" ? body.presetQuestion.trim() : "";
+  if (preset && agent === "interviewer") {
+    await prisma.turn.create({
+      data: { interviewId: id, speaker: "interviewer", text: preset },
+    });
+    if (interview.status !== "in_progress" && interview.status !== "completed") {
+      await prisma.interview.update({
+        where: { id },
+        data: { status: "in_progress" },
+      });
+    }
+    return new Response(preset, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+
   const ctx: EngineContext = {
     candidateName: interview.candidateName,
     targetRole: interview.targetRole,

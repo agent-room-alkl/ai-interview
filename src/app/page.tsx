@@ -21,7 +21,13 @@ const features = [
 ];
 
 export default async function Home() {
-  const { userId } = await auth();
+  let userId: string | null = null;
+  try {
+    const session = await auth();
+    userId = session.userId;
+  } catch {
+    // Auth failure should not crash the public landing page.
+  }
   return (
     <main className="min-h-dvh overflow-x-clip bg-[#f6f5f0] text-[#17201e]">
       <section className="safe-px relative mx-auto max-w-7xl px-4 pb-16 pt-4 sm:px-10 sm:pb-20 sm:pt-6 lg:px-16">

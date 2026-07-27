@@ -1,48 +1,12 @@
 import mammoth from "mammoth";
 
 /**
- * pdfjs-dist (via pdf-parse v2) expects a few browser globals even for text
- * extraction. Vercel Node functions don't provide them → DOMMatrix ReferenceError.
- */
-function ensurePdfDomPolyfills() {
-  const g = globalThis as Record<string, unknown>;
-
-  if (typeof g.DOMMatrix === "undefined") {
-    g.DOMMatrix = class DOMMatrix {
-      // Minimal stub — text extraction does not use matrix math.
-      constructor(_init?: string | number[]) {}
-    };
-  }
-  if (typeof g.ImageData === "undefined") {
-    g.ImageData = class ImageData {
-      data: Uint8ClampedArray;
-      width: number;
-      height: number;
-      constructor(
-        sw: number | Uint8ClampedArray,
-        sh?: number,
-        settings?: { width: number; height: number },
-      ) {
-        if (typeof sw === "number") {
-          this.width = sw;
-          this.height = sh ?? 0;
-          this.data = new Uint8ClampedArray(this.width * this.height * 4);
-        } else {
-          this.data = sw;
-          this.width = settings?.width ?? sh ?? 0;
-          this.height = settings?.height ?? 0;
-        }
-      }
-    };
-  }
-  if (typeof g.Path2D === "undefined") {
-    g.Path2D = class Path2D {};
-  }
-}
-
-/**
  * Extract plain text from an uploaded résumé file (PDF or DOCX).
- * pdf-parse is loaded dynamically so page load does not pull pdfjs.
+ *
+ * PDF uses `unpdf` — a serverless-optimized pdfjs build that needs no canvas /
+ * DOMMatrix, so it works on Vercel Node functions (pdf-parse v2's pdfjs crashed
+ * there with "DOMMatrix is not defined"). Loaded dynamically so page render
+ * doesn't pull it in. DOCX uses mammoth. Callers can always paste text instead.
  */
 export async function parseResumeFile(
   file: File,
@@ -52,21 +16,14 @@ export async function parseResumeFile(
 
   try {
     if (name.endsWith(".pdf") || file.type === "application/pdf") {
-      ensurePdfDomPolyfills();
-      const { PDFParse } = await import("pdf-parse");
-      const parser = new PDFParse({ data: buffer });
-      try {
-        const result = await parser.getText();
-        const text = (result.text ?? "")
-          .replace(/\n\s*--\s*\d+\s+of\s+\d+\s*--\s*\n/g, "\n")
-          .trim();
-        if (!text) {
-          return { text: "", error: "Could not extract text from that PDF." };
-        }
-        return { text };
-      } finally {
-        await parser.destroy().catch(() => undefined);
+      const { extractText, getDocumentProxy } = await import("unpdf");
+      const pdf = await getDocumentProxy(new Uint8Array(buffer));
+      const { text } = await extractText(pdf, { mergePages: true });
+      const clean = (Array.isArray(text) ? text.join("\n") : (text ?? "")).trim();
+      if (!clean) {
+        return { text: "", error: "Could not extract text from that PDF." };
       }
+      return { text: clean };
     }
 
     if (

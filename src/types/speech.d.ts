@@ -1,6 +1,6 @@
 // Minimal ambient types for the Web Speech API (not in default TS lib.dom).
 interface SpeechRecognitionResultLike {
-  0: { transcript: string };
+  0: { transcript: string; confidence?: number };
   isFinal: boolean;
   length: number;
 }

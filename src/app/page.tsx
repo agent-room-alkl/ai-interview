@@ -20,6 +20,17 @@ const features = [
   },
 ];
 
+const languages = [
+  "English",
+  "中文",
+  "Español",
+  "Français",
+  "Deutsch",
+  "日本語",
+  "한국어",
+  "Português",
+];
+
 export default async function Home() {
   let userId: string | null = null;
   try {
@@ -133,17 +144,19 @@ export default async function Home() {
                     <i className="h-3 w-1 rounded-full bg-[#d7f16a]" />
                   </span>
                 </div>
+                <div className="mt-5">
+                  <span className="inline-flex rounded-full bg-[#e57b4f] px-3 py-1.5 text-[11px] font-semibold text-white sm:px-4 sm:py-2 sm:text-xs">
+                    tailored to you
+                  </span>
+                </div>
               </div>
             </div>
-            <span className="absolute -bottom-4 left-2 rounded-full bg-[#e57b4f] px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg sm:-bottom-5 sm:left-0 sm:px-4 sm:py-2 sm:text-xs">
-              tailored to you
-            </span>
           </div>
         </div>
 
         <div
           id="how-it-works"
-          className="relative z-10 grid gap-4 border-t border-[#17201e]/10 pt-8 md:grid-cols-3"
+          className="relative z-10 mt-4 grid gap-4 border-t border-[#17201e]/10 pt-10 md:grid-cols-3"
         >
           {features.map((feature) => (
             <article
@@ -162,6 +175,33 @@ export default async function Home() {
             </article>
           ))}
         </div>
+
+        <section
+          id="languages"
+          className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
+            Multilingual
+          </p>
+          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
+            Interview in the language your résumé speaks.
+          </h2>
+          <p className="mt-4 max-w-xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
+            Upload your résumé and we detect the language automatically — then
+            questions, voice recognition, and coaching follow that language so
+            practice feels natural from the first turn.
+          </p>
+          <ul className="mt-8 flex flex-wrap gap-2 sm:gap-3">
+            {languages.map((lang) => (
+              <li
+                key={lang}
+                className="rounded-full border border-[#17201e]/15 bg-white/50 px-3.5 py-2 text-sm font-medium text-[#17201e]"
+              >
+                {lang}
+              </li>
+            ))}
+          </ul>
+        </section>
       </section>
       <footer className="border-t border-[#17201e]/10 px-6 py-6 text-center text-xs text-[#65736d] sm:px-10 lg:px-16">
         Your next interview starts with one good question.

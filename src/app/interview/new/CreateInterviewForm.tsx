@@ -86,8 +86,31 @@ export function CreateInterviewForm() {
         disabled={pending}
         className="min-h-12 w-full rounded-full bg-[#17201e] px-6 py-3.5 text-sm font-semibold text-[#f6f5f0] disabled:opacity-60 sm:w-auto"
       >
-        {pending ? "Creating…" : "Continue to role selection →"}
+        {pending ? "Uploading & parsing…" : "Continue to role selection →"}
       </button>
+
+      {pending ? (
+        <div
+          className="rounded-2xl border border-[#17201e]/10 bg-white/70 px-4 py-4 text-sm text-[#52605a]"
+          aria-live="polite"
+        >
+          <p className="font-medium text-[#17201e]">Preparing your session</p>
+          <ol className="mt-3 space-y-2">
+            <li className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#e57b4f]" />
+              Uploading résumé
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#e57b4f]" />
+              Parsing document text
+            </li>
+            <li className="flex items-center gap-2 text-[#65736d]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#17201e]/20" />
+              Next: extract experience &amp; match roles
+            </li>
+          </ol>
+        </div>
+      ) : null}
     </form>
   );
 }

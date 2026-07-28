@@ -7,6 +7,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { suggestedQuestionsForRole } from "@/lib/suggested-questions";
+import {
+  SAMPLE_WRITTEN_QUESTIONS,
+  type WrittenQuestion,
+} from "@/lib/written-questions";
+import { QuestionCard } from "./QuestionCard";
 
 type Speaker = "interviewer" | "trainer" | "user";
 interface Msg {
@@ -69,6 +74,10 @@ export default function InterviewRoom({
   const [lastQuestion, setLastQuestion] = useState<string>(
     initialTurns.filter((t) => t.speaker === "interviewer").at(-1)?.text ?? "",
   );
+  const [activeWritten, setActiveWritten] = useState<WrittenQuestion | null>(
+    null,
+  );
+  const [usedWrittenIds, setUsedWrittenIds] = useState<string[]>([]);
 
   const recogRef = useRef<SpeechRecognitionLike | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -516,6 +525,28 @@ export default function InterviewRoom({
     [interviewId, enqueueSpeech, finalizeSpeech],
   );
 
+  const openWrittenQuestion = useCallback((q: WrittenQuestion) => {
+    if (busyRef.current) return;
+    setUsedWrittenIds((prev) => (prev.includes(q.id) ? prev : [...prev, q.id]));
+    setActiveWritten(q);
+    setLastQuestion(q.prompt);
+    setMessages((m) => [
+      ...m,
+      {
+        speaker: "interviewer",
+        text: `[Written ${q.kind}] ${q.prompt}`,
+      },
+    ]);
+  }, []);
+
+  const submitWritten = useCallback(
+    (utterance: string) => {
+      setActiveWritten(null);
+      handleUserUtterance(utterance);
+    },
+    [handleUserUtterance],
+  );
+
   // ---------- Mic capture with echo cancellation (T-01) ----------
   // The browser SpeechRecognition API opens its own capture, but holding an
   // getUserMedia stream with echoCancellation/noiseSuppression/autoGainControl
@@ -790,6 +821,17 @@ export default function InterviewRoom({
             )}
           </div>
         )}
+        {activeWritten ? (
+          <div className="flex justify-start">
+            <QuestionCard
+              key={activeWritten.id}
+              interviewId={interviewId}
+              question={activeWritten}
+              disabled={busy}
+              onSubmit={(utterance) => submitWritten(utterance)}
+            />
+          </div>
+        ) : null}
       </div>
 
       <TypeFallback
@@ -798,6 +840,10 @@ export default function InterviewRoom({
         mode={mode}
         suggestions={suggestions.filter((s) => !usedSuggestionIds.includes(s.id))}
         onSuggest={(id, q) => void askSuggested(id, q)}
+        writtenQuestions={SAMPLE_WRITTEN_QUESTIONS.filter(
+          (q) => !usedWrittenIds.includes(q.id),
+        )}
+        onWritten={openWrittenQuestion}
       />
     </div>
   );
@@ -809,16 +855,47 @@ function TypeFallback({
   mode,
   suggestions,
   onSuggest,
+  writtenQuestions,
+  onWritten,
 }: {
   onSend: (t: string) => void;
   disabled: boolean;
   mode: string;
   suggestions: { id: string; label: string; question: string }[];
   onSuggest: (id: string, question: string) => void;
+  writtenQuestions: WrittenQuestion[];
+  onWritten: (q: WrittenQuestion) => void;
 }) {
   const [val, setVal] = useState("");
   return (
     <div className="safe-pb border-t border-gray-200 bg-[#f6f5f0] pt-3">
+      {writtenQuestions.length > 0 && (
+        <div className="mb-3">
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+            Written questions
+          </p>
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {writtenQuestions.map((q) => (
+              <button
+                key={q.id}
+                type="button"
+                disabled={disabled}
+                title={q.prompt}
+                onClick={() => onWritten(q)}
+                className="min-h-10 shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-left text-xs font-medium text-indigo-900 disabled:opacity-40"
+              >
+                {q.kind === "coding"
+                  ? `Code · ${q.language ?? "code"}`
+                  : q.options?.some((o) => o.imageUrl)
+                    ? "Graphic choice"
+                    : q.kind === "multi_choice"
+                      ? "Multi-choice"
+                      : "Single choice"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {suggestions.length > 0 && (
         <div className="mb-3">
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">

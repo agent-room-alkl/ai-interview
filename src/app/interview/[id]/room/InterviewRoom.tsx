@@ -1029,6 +1029,12 @@ export default function InterviewRoom({
             } else if (hasPendingAnswer) {
               dot = "bg-emerald-500";
               label = "Got your answer — pause to submit, or press Done";
+            } else if (listening) {
+              // Mic is live and waiting for the candidate to start — blink so
+              // it's obvious the app is recording them right now.
+              dot = "bg-emerald-400";
+              label = "Mic on — start speaking";
+              pulse = true;
             }
             return (
               <>

@@ -11,6 +11,7 @@ import {
   SAMPLE_WRITTEN_QUESTIONS,
   type WrittenQuestion,
 } from "@/lib/written-questions";
+import type { ExpressionLevel } from "@/lib/interview-engine";
 import { QuestionCard } from "./QuestionCard";
 import { SpeakerAvatar } from "./SpeakerAvatar";
 import { SpeakingIndicator } from "./SpeakingIndicator";
@@ -101,6 +102,11 @@ export default function InterviewRoom({
   const [usedWrittenIds, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
+  // T-14: how elaborate the AI's language is (selectable + switchable). A ref
+  // mirrors it so the mount-only recognition path sends the current level too.
+  const [expressionLevel, setExpressionLevel] =
+    useState<ExpressionLevel>("professional");
+  const expressionLevelRef = useRef<ExpressionLevel>(expressionLevel);
 
   const recogRef = useRef<SpeechRecognitionLike | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -152,6 +158,9 @@ export default function InterviewRoom({
   useEffect(() => {
     lastQuestionRef.current = lastQuestion;
   }, [lastQuestion]);
+  useEffect(() => {
+    expressionLevelRef.current = expressionLevel;
+  }, [expressionLevel]);
 
   // ---------- TTS (streaming PCM → gapless Web Audio playback) ----------
   // Text is still batched into ~sentence chunks to keep request count low, but
@@ -435,7 +444,11 @@ export default function InterviewRoom({
         const res = await fetch(`/api/interview/${interviewId}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agent, ...opts }),
+          body: JSON.stringify({
+            agent,
+            expressionLevel: expressionLevelRef.current,
+            ...opts,
+          }),
           signal: ac.signal,
         });
         if (!res.ok || !res.body) throw new Error("chat");
@@ -834,6 +847,28 @@ export default function InterviewRoom({
         </div>
       </header>
 
+      {/* T-14: expression level — how elaborate the AI talks (not role difficulty).
+          Selectable at the start and switchable mid-interview; next turn applies. */}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+        <label htmlFor="expr-level" className="font-medium">
+          Expression level
+        </label>
+        <select
+          id="expr-level"
+          value={expressionLevel}
+          onChange={(e) => setExpressionLevel(e.target.value as ExpressionLevel)}
+          className="min-h-9 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800"
+        >
+          <option value="clear">Clear · plain words, short sentences</option>
+          <option value="professional">Professional · standard workplace tone</option>
+          <option value="advanced">Advanced · domain terms &amp; depth</option>
+          <option value="expert">Expert · dense &amp; rigorous</option>
+        </select>
+        <span className="hidden sm:inline">
+          Changes how elaborate the AI talks — not the role difficulty
+        </span>
+      </div>
+
       {!supported && (
         <div className="mt-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">
           This browser doesn’t support speech recognition — use Chrome, or type
@@ -949,6 +984,12 @@ export default function InterviewRoom({
                 ? " — nice, you cleared the bar."
                 : ` — aim for ${PASS_THRESHOLD}+. Say the answer again to raise it.`}
             </div>
+            {lastScore < PASS_THRESHOLD ? (
+              <p className="max-w-[min(85%,26rem)] text-xs text-gray-400">
+                Graded from your answer as transcribed above. If it looks garbled,
+                speech-to-text misheard you — try speaking clearly or typing.
+              </p>
+            ) : null}
             {lastScore >= PASS_THRESHOLD && !busy ? (
               <button
                 type="button"
@@ -961,6 +1002,54 @@ export default function InterviewRoom({
           </div>
         ) : null}
       </div>
+
+      {/* T-16: explicit voice-input status so the user always knows whether the
+          mic is capturing them, waiting, processing — or paused for the AI. */}
+      {supported ? (
+        <div className="flex items-center gap-2 px-1 pt-1 text-xs">
+          {(() => {
+            let dot = "bg-gray-300";
+            let label = "Ready — start speaking, or type below";
+            let pulse = false;
+            if (muted) {
+              dot = "bg-red-500";
+              label = "Mic off — tap Unmute to speak";
+            } else if (aiSpeaking) {
+              dot = "bg-indigo-400";
+              label = "AI is speaking — your mic is paused";
+              pulse = true;
+            } else if (busy) {
+              dot = "bg-amber-500";
+              label = "Thinking…";
+              pulse = true;
+            } else if (interim) {
+              dot = "bg-emerald-500";
+              label = "Listening…";
+              pulse = true;
+            } else if (hasPendingAnswer) {
+              dot = "bg-emerald-500";
+              label = "Got your answer — pause to submit, or press Done";
+            } else if (listening) {
+              // Mic is live and waiting for the candidate to start — blink so
+              // it's obvious the app is recording them right now.
+              dot = "bg-emerald-400";
+              label = "Mic on — start speaking";
+              pulse = true;
+            }
+            return (
+              <>
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${dot} ${
+                    pulse ? "animate-pulse" : ""
+                  }`}
+                  aria-hidden
+                />
+                <span className="text-gray-500">{label}</span>
+              </>
+            );
+          })()}
+        </div>
+      ) : null}
 
       <TypeFallback
         onSend={handleUserUtterance}

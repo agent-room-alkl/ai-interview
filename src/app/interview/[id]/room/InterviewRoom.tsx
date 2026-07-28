@@ -1003,6 +1003,48 @@ export default function InterviewRoom({
         ) : null}
       </div>
 
+      {/* T-16: explicit voice-input status so the user always knows whether the
+          mic is capturing them, waiting, processing — or paused for the AI. */}
+      {supported ? (
+        <div className="flex items-center gap-2 px-1 pt-1 text-xs">
+          {(() => {
+            let dot = "bg-gray-300";
+            let label = "Ready — start speaking, or type below";
+            let pulse = false;
+            if (muted) {
+              dot = "bg-red-500";
+              label = "Mic off — tap Unmute to speak";
+            } else if (aiSpeaking) {
+              dot = "bg-indigo-400";
+              label = "AI is speaking — your mic is paused";
+              pulse = true;
+            } else if (busy) {
+              dot = "bg-amber-500";
+              label = "Thinking…";
+              pulse = true;
+            } else if (interim) {
+              dot = "bg-emerald-500";
+              label = "Listening…";
+              pulse = true;
+            } else if (hasPendingAnswer) {
+              dot = "bg-emerald-500";
+              label = "Got your answer — pause to submit, or press Done";
+            }
+            return (
+              <>
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${dot} ${
+                    pulse ? "animate-pulse" : ""
+                  }`}
+                  aria-hidden
+                />
+                <span className="text-gray-500">{label}</span>
+              </>
+            );
+          })()}
+        </div>
+      ) : null}
+
       <TypeFallback
         onSend={handleUserUtterance}
         disabled={busy}

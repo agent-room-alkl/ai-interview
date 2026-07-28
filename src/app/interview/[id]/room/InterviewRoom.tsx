@@ -69,6 +69,22 @@ export default function InterviewRoom({
   // Timestamp (ms) of when the AI last stopped speaking — used to keep the mic
   // gated for a short cooldown so trailing TTS echo isn't captured as an answer.
   const lastSpeakEndRef = useRef(0);
+  // T-01: mic captured via getUserMedia with echo cancellation so hands-free
+  // devices don't re-transcribe the AI's own TTS as the candidate's answer.
+  const micStreamRef = useRef<MediaStream | null>(null);
+  // T-01: accumulate the candidate's final transcript and only submit after a
+  // brief silence (or an explicit "Done") — so coaching waits until they finish.
+  const answerBufferRef = useRef("");
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hasPendingAnswer, setHasPendingAnswer] = useState(false);
+  // The always-on recognition handler is installed once (mount-only effect) and
+  // would otherwise capture stale closures; these refs let it call the latest.
+  const submitAnswerRef = useRef<() => void>(() => {});
+  const lastQuestionRef = useRef(lastQuestion);
+  // How long the candidate must pause before we treat the answer as complete.
+  const SILENCE_MS = 1500;
+  // Cooldown after the AI stops speaking before the mic is trusted again.
+  const SPEAK_COOLDOWN_MS = 1200;
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -79,6 +95,9 @@ export default function InterviewRoom({
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
+  useEffect(() => {
+    lastQuestionRef.current = lastQuestion;
+  }, [lastQuestion]);
 
   // ---------- TTS (streaming PCM → gapless Web Audio playback) ----------
   // Text is still batched into ~sentence chunks to keep request count low, but
@@ -295,10 +314,18 @@ export default function InterviewRoom({
     flushSpeechPending(true);
   }, [flushSpeechPending]);
 
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, []);
+
   const handleFinish = useCallback(() => {
     if (finishing || leavingRef.current) return;
     leavingRef.current = true;
     setFinishing(true);
+    clearSilenceTimer();
     stopSpeaking();
     chatAbortRef.current?.abort();
     setBusy(false);
@@ -324,7 +351,7 @@ export default function InterviewRoom({
         window.location.assign(reportUrl);
       }
     }, 1200);
-  }, [finishing, interviewId, router, stopSpeaking]);
+  }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer]);
 
   // ---------- Chat (streaming text from an agent) ----------
   const runAgent = useCallback(
@@ -403,13 +430,36 @@ export default function InterviewRoom({
       if (!t || busyRef.current) return;
       if (mode === "practice") {
         // Trainer coaches the latest answer to the last interviewer question.
-        void runAgent("trainer", { question: lastQuestion, answer: t, userText: t });
+        // Read the question from a ref so the mount-time recognition handler
+        // always coaches against the CURRENT question, not a stale one.
+        void runAgent("trainer", {
+          question: lastQuestionRef.current,
+          answer: t,
+          userText: t,
+        });
       } else {
         void runAgent("interviewer", { userText: t });
       }
     },
-    [mode, lastQuestion, runAgent],
+    [mode, runAgent],
   );
+
+  // T-01: submit whatever the candidate has said so far (silence-triggered or
+  // via the explicit "Done" button). Coaching only fires here, never mid-answer.
+  const submitBufferedAnswer = useCallback(() => {
+    clearSilenceTimer();
+    const answer = answerBufferRef.current.trim();
+    answerBufferRef.current = "";
+    setHasPendingAnswer(false);
+    setInterim("");
+    if (!answer || busyRef.current) return;
+    handleUserUtterance(answer);
+  }, [clearSilenceTimer, handleUserUtterance]);
+
+  // Keep the ref pointed at the latest submit fn for the mount-only recognizer.
+  useEffect(() => {
+    submitAnswerRef.current = submitBufferedAnswer;
+  }, [submitBufferedAnswer]);
 
   const suggestions = useMemo(
     () => suggestedQuestionsForRole(targetRole),
@@ -444,6 +494,40 @@ export default function InterviewRoom({
     [interviewId, enqueueSpeech, finalizeSpeech],
   );
 
+  // ---------- Mic capture with echo cancellation (T-01) ----------
+  // The browser SpeechRecognition API opens its own capture, but holding an
+  // getUserMedia stream with echoCancellation/noiseSuppression/autoGainControl
+  // makes the platform apply AEC to the shared input device, so on hands-free
+  // (speaker) setups the AI's own TTS is largely cancelled before it can be
+  // transcribed back as the candidate's answer. Also front-loads the mic prompt.
+  useEffect(() => {
+    let cancelled = false;
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    if (!md?.getUserMedia) return;
+    md.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        micStreamRef.current = stream;
+      })
+      .catch(() => {
+        /* permission denied / no device — SpeechRecognition still tries */
+      });
+    return () => {
+      cancelled = true;
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
+      micStreamRef.current = null;
+    };
+  }, []);
+
   // ---------- Speech recognition (always-on mic) ----------
   useEffect(() => {
     const Ctor =
@@ -468,7 +552,7 @@ export default function InterviewRoom({
       if (
         aiSpeakingRef.current ||
         busyRef.current ||
-        Date.now() - lastSpeakEndRef.current < 800
+        Date.now() - lastSpeakEndRef.current < SPEAK_COOLDOWN_MS
       ) {
         setInterim("");
         return;
@@ -481,14 +565,30 @@ export default function InterviewRoom({
         if (r.isFinal) finalText += piece;
         else interimText += piece;
       }
-      const finalTrim = finalText.trim();
       setInterim(interimText);
-      // Require a real multi-word phrase so single-token noise blips (a cough,
-      // a stray syllable) don't submit as an answer.
-      const wordCount = finalTrim ? finalTrim.split(/\s+/).length : 0;
-      if (finalTrim.length >= 8 && wordCount >= 2) {
-        setInterim("");
-        handleUserUtterance(finalText);
+      // T-01: accumulate final speech into a buffer and DON'T submit yet — the
+      // candidate is often mid-answer. Any incoming speech (final or interim)
+      // resets a short silence timer; only when they pause for SILENCE_MS (or
+      // press "Done") do we treat the answer as complete and coach on it. This
+      // stops the Trainer/interviewer from interrupting halfway through.
+      const finalTrim = finalText.trim();
+      if (finalTrim) {
+        answerBufferRef.current = answerBufferRef.current
+          ? `${answerBufferRef.current} ${finalTrim}`
+          : finalTrim;
+        setHasPendingAnswer(true);
+      }
+      // Reset the silence timer on any voice activity (spoken words in progress).
+      if (finalTrim || interimText.trim()) {
+        clearSilenceTimer();
+        if (answerBufferRef.current.trim()) {
+          silenceTimerRef.current = setTimeout(() => {
+            silenceTimerRef.current = null;
+            // Re-check gates at fire time: never submit while the AI is talking.
+            if (aiSpeakingRef.current || busyRef.current) return;
+            submitAnswerRef.current();
+          }, SILENCE_MS);
+        }
       }
     };
     recog.onend = () => {
@@ -524,6 +624,13 @@ export default function InterviewRoom({
     const recog = recogRef.current;
     setMuted((prev) => {
       const next = !prev;
+      if (next) {
+        // Muting discards any half-captured answer so it can't submit later.
+        clearSilenceTimer();
+        answerBufferRef.current = "";
+        setHasPendingAnswer(false);
+        setInterim("");
+      }
       if (recog) {
         if (next) recog.stop();
         else {
@@ -557,6 +664,7 @@ export default function InterviewRoom({
     return () => {
       window.removeEventListener("pointerdown", resume);
       window.removeEventListener("keydown", resume);
+      clearSilenceTimer();
       stopSpeaking();
       const ctx = audioCtxRef.current;
       if (ctx) {
@@ -640,11 +748,22 @@ export default function InterviewRoom({
             </div>
           </div>
         ))}
-        {interim && (
-          <div className="flex justify-end">
+        {(hasPendingAnswer || interim) && (
+          <div className="flex flex-col items-end gap-2">
             <div className="max-w-[min(85%,24rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[80%] sm:px-4">
-              {interim}
+              {answerBufferRef.current
+                ? `${answerBufferRef.current}${interim ? " " + interim : ""}`
+                : interim}
             </div>
+            {hasPendingAnswer && !busy && (
+              <button
+                type="button"
+                onClick={submitBufferedAnswer}
+                className="min-h-9 rounded-full bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white"
+              >
+                Done answering ↵
+              </button>
+            )}
           </div>
         )}
       </div>

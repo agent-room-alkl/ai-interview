@@ -6,7 +6,7 @@ const features = [
   {
     number: "01",
     title: "Resume-aware sessions",
-    text: "Upload your resume and get a focused interview plan built around your experience and target role.",
+    text: "Upload your résumé and get a focused interview plan built around your experience and target role.",
   },
   {
     number: "02",
@@ -17,6 +17,29 @@ const features = [
     number: "03",
     title: "Speak naturally",
     text: "Low-latency voice, an always-ready microphone, and interruption handling keep the conversation flowing.",
+  },
+];
+
+const guideSteps = [
+  {
+    step: "1",
+    title: "Create an account",
+    text: "Sign up, then start a new interview from your dashboard.",
+  },
+  {
+    step: "2",
+    title: "Upload your résumé",
+    text: "We detect language and roles, then build questions around your background.",
+  },
+  {
+    step: "3",
+    title: "Talk through the room",
+    text: "Answer out loud. Use Practice mode when you want coaching and a higher bar before moving on.",
+  },
+  {
+    step: "4",
+    title: "Review and retry",
+    text: "Rehearse weak spots, switch expression level anytime, and keep sessions in a quiet space.",
   },
 ];
 
@@ -60,6 +83,12 @@ export default async function Home() {
             >
               How it works
             </a>
+            <a
+              className="hidden transition-opacity hover:opacity-60 md:inline"
+              href="#guide"
+            >
+              Guide
+            </a>
             {userId ? (
               <>
                 <Link
@@ -101,7 +130,7 @@ export default async function Home() {
               Make your next answer your best one.
             </h1>
             <p className="mt-6 max-w-xl text-base leading-7 text-[#52605a] sm:mt-8 sm:text-lg sm:leading-8">
-              A calm, realistic AI interview partner that knows your resume,
+              A calm, realistic AI interview partner that knows your résumé,
               asks better questions, and helps you get sharper with every
               attempt.
             </p>
@@ -113,10 +142,10 @@ export default async function Home() {
                 Start practicing <span className="ml-3">↗</span>
               </Link>
               <a
-                href="#how-it-works"
+                href="#pricing"
                 className="inline-flex min-h-12 items-center justify-center rounded-full border border-[#17201e]/20 px-6 py-3.5 text-sm font-semibold transition-colors hover:bg-white/60"
               >
-                See how it works
+                Free while we build
               </a>
             </div>
           </div>
@@ -179,6 +208,54 @@ export default async function Home() {
         </div>
 
         <section
+          id="pricing"
+          className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
+            Pricing
+          </p>
+          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
+            Free to practice now. Pay later when we launch plans.
+          </h2>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
+            During early access you can run full voice interviews and coaching
+            without a paid subscription. Signed-in sessions may include a fair
+            time limit so everyone gets a turn. When paid plans arrive, we will
+            show pricing clearly before you upgrade — no surprise charges.
+          </p>
+        </section>
+
+        <section
+          id="guide"
+          className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
+            How to use
+          </p>
+          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
+            From signup to sharper answers in four steps.
+          </h2>
+          <ol className="mt-8 grid gap-4 sm:grid-cols-2">
+            {guideSteps.map((item) => (
+              <li
+                key={item.step}
+                className="rounded-2xl border border-[#17201e]/10 bg-white/35 p-6"
+              >
+                <p className="text-xs font-semibold text-[#e57b4f]">
+                  Step {item.step}
+                </p>
+                <h3 className="mt-4 text-lg font-semibold tracking-[-0.03em]">
+                  {item.title}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-[#65736d]">
+                  {item.text}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section
           id="languages"
           className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
         >
@@ -205,8 +282,24 @@ export default async function Home() {
           </ul>
         </section>
       </section>
-      <footer className="border-t border-[#17201e]/10 px-6 py-6 text-center text-xs text-[#65736d] sm:px-10 lg:px-16">
-        Your next interview starts with one good question.
+      <footer className="border-t border-[#17201e]/10 px-6 py-8 text-sm text-[#65736d] sm:px-10 lg:px-16">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 sm:flex-row">
+          <p>Your next interview starts with one good question.</p>
+          <nav className="flex flex-wrap items-center justify-center gap-4 text-xs font-medium sm:gap-6">
+            <a className="hover:opacity-70" href="#guide">
+              Guide
+            </a>
+            <a className="hover:opacity-70" href="#pricing">
+              Pricing
+            </a>
+            <Link className="hover:opacity-70" href="/terms">
+              Terms
+            </Link>
+            <Link className="hover:opacity-70" href="/privacy">
+              Privacy
+            </Link>
+          </nav>
+        </div>
       </footer>
     </main>
   );

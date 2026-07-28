@@ -8,6 +8,15 @@ export type Mode = "practice" | "interview";
 /** T-12: the score (0–100) a practice answer must reach to move on. */
 export const PASS_THRESHOLD = 80;
 
+/** T-27: documented score bands for calibration (prompt + smoke). */
+export const SCORE_BANDS = {
+  emptyOrNoise: { min: 0, max: 29 },
+  vague: { min: 30, max: 59 },
+  partial: { min: 60, max: 79 },
+  strongPass: { min: 80, max: 89 },
+  excellent: { min: 90, max: 100 },
+} as const;
+
 /** Compact catalog (ids + kinds + short prompts, NO answers) the interviewer
  * can pick from when it decides to give a written test question (T-13). */
 function writtenCatalog(): string {
@@ -143,7 +152,7 @@ ${expressionDirective(c.expressionLevel)}
 Keep the FEEDBACK short and punchy — the candidate is practicing out loud and needs a signal, not an essay. Only the practice answer may be long and detailed.
 
 Return, in EXACTLY this markdown structure and nothing else:
-**Score:** NN/100 — your honest rating of how strong THIS answer is for the role. Be a fair but demanding interviewer; a passing answer is ${PASS_THRESHOLD}+.
+**Score:** NN/100 — calibrated rating for THIS answer (see rubric below). A passing answer is ${PASS_THRESHOLD}+.
 **What worked:** ONE short sentence.
 **To improve:** ONE short, specific, actionable sentence (the single highest-impact fix — structure, a missing metric, STAR, or filler words).
 **Weak spots:** 1–3 short lines. For each line, quote the exact incorrect or unclear snippet from the ANSWER, label it grammar, content, clarity, or transcript uncertainty, and give a concise correction. If the transcript is too garbled to quote confidently, say Transcript uncertainty and do not blame the candidate for grammar.
@@ -151,10 +160,18 @@ Return, in EXACTLY this markdown structure and nothing else:
 
 Then end with exactly: "Now try saying it again in your own words."
 
-The ANSWER usually comes from imperfect speech-to-text, so it may contain misheard words, homophones, garbled technical terms, missing punctuation, or run-on sentences. Grade the candidate's EVIDENT intent and substance — do NOT lower the score for transcription artifacts. If the intended answer is clearly strong despite messy transcription, score it as strong; only mark down for genuinely weak or missing content.
+SCORING RUBRIC (T-27) — use the FULL 0–100 range. Do NOT habitually land on round mid-band scores like 45/60/70.
+- 0–29: Empty, off-topic, or only filler / noise.
+- 30–59: Vague attempt — missing structure AND specifics (no clear ownership, no concrete actions/results).
+- 60–79: Partial — some relevant content OR some STAR pieces, but incomplete structure, weak ownership, or no measurable outcome. Not yet hire-ready / not a pass.
+- 80–89: Strong pass — clear situation → action → result, specific example, at least one concrete metric or outcome, relevant to the role. Award ${PASS_THRESHOLD}+ when these are present even if phrasing is imperfect.
+- 90–100: Excellent — crisp STAR, quantified impact, role-deep insight.
+
+Speech-to-text noise (T-15/T-20): the ANSWER often has misheard words, homophones, garbled terms, or run-ons. Grade EVIDENT intent and substance — do NOT park a strong answer in the 60s because of transcription artifacts. If the candidate is clearly delivering a coached Practice answer (same story beats / metrics) despite messy STT, score ${PASS_THRESHOLD}+ when the substance matches a strong answer.
 
 Hard rules:
 - The FIRST line must be exactly "**Score:** NN/100" where NN is an integer 0–100.
+- Prefer non-round scores when distinguishing quality (e.g. 72 vs 78 vs 84) — avoid clustering every partial answer at 60 or 70.
 - Never output more than one bullet each for "What worked" and "To improve".
 - Keep Weak spots separate from To improve; do not hide specific errors inside the general coaching sentence.
 - Quote only snippets actually present in the ANSWER; mark uncertain ASR text instead of inventing a user error.

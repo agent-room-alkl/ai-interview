@@ -60,6 +60,28 @@ function isMobileUA(): boolean {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
+// Fold a new transcript fragment onto the accumulated text without duplicating.
+// Android Chrome's continuous SpeechRecognition re-emits an ever-growing
+// restatement of the same utterance on each event (and keeps resultIndex at 0),
+// so blindly appending pieces produces runaway repetition like
+// "do you remember do you remember experience do you remember experience the…".
+// Here: an empty/duplicate piece is dropped, a piece that extends the accumulator
+// (the growing-restatement case) replaces it, one already contained is ignored,
+// and a genuinely new segment is appended with a space. Case-insensitive so a
+// capitalized restart still matches.
+function mergeTranscript(acc: string, piece: string): string {
+  const p = piece.trim();
+  if (!p) return acc;
+  if (!acc) return p;
+  const a = acc.toLowerCase();
+  const b = p.toLowerCase();
+  if (a === b) return acc;
+  if (b.startsWith(a)) return p; // growing restatement of the same utterance
+  if (a.endsWith(b)) return acc; // already folded in
+  if (b.endsWith(a)) return p; // rare: prefix re-recognized
+  return `${acc} ${p}`;
+}
+
 // T-13: the interviewer embeds [[ASK_WRITTEN:<id>]] to pose a written test.
 const WRITTEN_MARKER = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/gi;
 const stripMarkers = (s: string) =>
@@ -184,6 +206,12 @@ export default function InterviewRoom({
   // T-01: accumulate the candidate's final transcript and only submit after a
   // brief silence (or an explicit "Done") — so coaching waits until they finish.
   const answerBufferRef = useRef("");
+  // Split the pending answer into text committed from PREVIOUS recognition
+  // sessions (before an onend/restart) and the CURRENT session's final text.
+  // The current session is rebuilt from results[0..] each event rather than
+  // appended, so Android's cumulative re-emits can't pile up (see mergeTranscript).
+  const committedRef = useRef("");
+  const sessionFinalRef = useRef("");
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasPendingAnswer, setHasPendingAnswer] = useState(false);
   // The always-on recognition handler is installed once (mount-only effect) and
@@ -669,6 +697,8 @@ export default function InterviewRoom({
     clearSilenceTimer();
     const answer = answerBufferRef.current.trim();
     answerBufferRef.current = "";
+    committedRef.current = "";
+    sessionFinalRef.current = "";
     setHasPendingAnswer(false);
     setInterim("");
     if (!answer || busyRef.current) return;
@@ -861,9 +891,15 @@ export default function InterviewRoom({
         setInterim("");
         return;
       }
-      let finalText = "";
+      // Rebuild this recognition session's final text from the WHOLE results
+      // list every event (results[] is the authoritative cumulative record) and
+      // fold pieces with mergeTranscript, rather than appending the delta from
+      // e.resultIndex. On Android Chrome resultIndex stays at 0 and finals are
+      // re-emitted as a growing restatement, so the old delta-append double-
+      // counted them into runaway repetition; rebuild + merge is idempotent.
+      let sessionFinal = "";
       let interimText = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
+      for (let i = 0; i < e.results.length; i++) {
         const r = e.results[i];
         const alt = r[0];
         const piece = alt?.transcript ?? "";
@@ -878,7 +914,7 @@ export default function InterviewRoom({
         ) {
           continue;
         }
-        if (r.isFinal) finalText += piece;
+        if (r.isFinal) sessionFinal = mergeTranscript(sessionFinal, piece);
         else interimText += piece;
       }
       setInterim(interimText);
@@ -887,20 +923,23 @@ export default function InterviewRoom({
       // resets a short silence timer; only when they pause for SILENCE_MS (or
       // press "Done") do we treat the answer as complete and coach on it. This
       // stops the Trainer/interviewer from interrupting halfway through.
-      const finalTrim = finalText.trim();
+      const sessionTrim = sessionFinal.trim();
       // T-28: ignore finals while mic energy is below ambient floor (room noise).
       // Fail-open when VAD isn't reporting yet (mobile AudioContext often stays
       // suspended until a user gesture — RMS stays 0 and would block all speech).
       const energyOk =
         !vadActiveRef.current || micRmsRef.current >= MIC_ENERGY_FLOOR;
-      if (finalTrim && energyOk) {
-        answerBufferRef.current = answerBufferRef.current
-          ? `${answerBufferRef.current} ${finalTrim}`
-          : finalTrim;
-        setHasPendingAnswer(true);
+      if (sessionTrim && energyOk) {
+        sessionFinalRef.current = sessionTrim;
+        // Pending answer = committed prior sessions + the rebuilt current one.
+        answerBufferRef.current = mergeTranscript(
+          committedRef.current,
+          sessionTrim,
+        );
+        setHasPendingAnswer(Boolean(answerBufferRef.current));
       }
       // Reset the silence timer on any voice activity (spoken words in progress).
-      if (finalTrim || interimText.trim()) {
+      if (sessionTrim || interimText.trim()) {
         clearSilenceTimer();
         if (answerBufferRef.current.trim()) {
           silenceTimerRef.current = setTimeout(() => {
@@ -914,6 +953,16 @@ export default function InterviewRoom({
     };
     recog.onend = () => {
       setListening(false);
+      // Recognition restarts with a fresh results[] list, so fold this session's
+      // final text into the committed buffer before it resets — otherwise the
+      // next session's rebuild would drop everything said before the restart.
+      if (sessionFinalRef.current) {
+        committedRef.current = mergeTranscript(
+          committedRef.current,
+          sessionFinalRef.current,
+        );
+        sessionFinalRef.current = "";
+      }
       // A fatal error (permission blocked) stops the restart loop — otherwise we
       // hammer the mic and spin forever. A tap re-arms it (see gesture handler).
       if (leavingRef.current || recogFatalRef.current) return;
@@ -971,6 +1020,8 @@ export default function InterviewRoom({
         // Muting discards any half-captured answer so it can't submit later.
         clearSilenceTimer();
         answerBufferRef.current = "";
+        committedRef.current = "";
+        sessionFinalRef.current = "";
         setHasPendingAnswer(false);
         setInterim("");
       }

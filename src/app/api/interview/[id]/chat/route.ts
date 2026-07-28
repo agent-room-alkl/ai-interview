@@ -58,8 +58,13 @@ export async function POST(
   const ctx: EngineContext = {
     candidateName: interview.candidateName,
     targetRole: interview.targetRole,
+    targetRoles:
+      interview.targetRoles && interview.targetRoles.length
+        ? interview.targetRoles
+        : [interview.targetRole],
     resumeText: interview.resumeText ?? "",
     mode: interview.mode as Mode,
+    language: interview.language,
   };
 
   // Persist an incoming user answer if present.

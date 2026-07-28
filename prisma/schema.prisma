@@ -28,7 +28,9 @@ model Interview {
   candidateName String
   resumeText    String
   resumeFileUrl String?
-  targetRole    String?
+  targetRole    String? // primary role (first of targetRoles) — kept for display/back-compat
+  targetRoles   String[] @default([]) // one or more roles the candidate is interviewing for
+  language      String   @default("en") // BCP-47 primary subtag the interview is conducted in (detected from résumé, user-overridable)
   mode          String // "practice" | "interview"
   status        String   @default("draft") // draft | ready | in_progress | completed
   createdAt     DateTime @default(now())

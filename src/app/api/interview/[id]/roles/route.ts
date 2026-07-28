@@ -28,6 +28,12 @@ export async function POST(
 
   try {
     const result = await suggestRoles(interview.resumeText);
+    // Persist the detected interview language so the room/prompts/STT/TTS can
+    // pick it up. The user can still override it on the role-selection screen.
+    const lang = result.language?.trim().toLowerCase();
+    if (lang) {
+      await prisma.interview.update({ where: { id }, data: { language: lang } });
+    }
     return NextResponse.json(result);
   } catch (err) {
     console.error("suggestRoles failed", err);

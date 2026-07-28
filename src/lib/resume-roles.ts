@@ -5,6 +5,14 @@ import { z } from "zod";
 import { model } from "@/lib/ai";
 
 export const RoleSuggestionSchema = z.object({
+  language: z
+    .string()
+    .describe(
+      "BCP-47 primary language subtag the interview should be conducted in, " +
+        "inferred from the language the résumé is predominantly written in " +
+        "(e.g. 'en', 'zh', 'es', 'fr', 'de', 'ja', 'ko', 'pt', 'hi'). " +
+        "Return just the subtag, lowercase.",
+    ),
   roles: z
     .array(
       z.object({
@@ -42,6 +50,8 @@ const SYSTEM = `You are a senior technical recruiter and career coach.
 Given a candidate's résumé text, identify the 5–8 job roles they are best positioned to interview for.
 Rank them by fit (highest matchScore first). Prefer concrete, market-standard titles.
 Consider skills, years of experience, domains, and trajectory. Be realistic about seniority.
+Also detect the language the résumé is predominantly written in and return it as "language"
+(a lowercase BCP-47 primary subtag) — this is the language the interview will default to.
 Return ONLY the structured object.`;
 
 export async function suggestRoles(

@@ -6,6 +6,7 @@
 // stop-start choppiness of the earlier per-clip mp3 approach.
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -14,9 +15,28 @@ const OPENAI_KEY = process.env.OPENAI_API_KEY ?? process.env.AI_GATEWAY_API_KEY 
 const TTS_MODEL = process.env.TTS_MODEL ?? "gpt-4o-mini-tts";
 const TTS_VOICE = process.env.TTS_VOICE ?? "alloy";
 
+// T-05: pick the TTS voice from the interview's language so the spoken voice
+// matches the language the interview is conducted in. Each entry is overridable
+// via env (e.g. TTS_VOICE_ZH=nova); everything falls back to TTS_VOICE.
+const LANGUAGE_VOICE: Record<string, string> = {
+  en: process.env.TTS_VOICE_EN ?? "alloy",
+  zh: process.env.TTS_VOICE_ZH ?? "nova",
+  es: process.env.TTS_VOICE_ES ?? "nova",
+  fr: process.env.TTS_VOICE_FR ?? "shimmer",
+  de: process.env.TTS_VOICE_DE ?? "onyx",
+  ja: process.env.TTS_VOICE_JA ?? "shimmer",
+  ko: process.env.TTS_VOICE_KO ?? "nova",
+  pt: process.env.TTS_VOICE_PT ?? "nova",
+  hi: process.env.TTS_VOICE_HI ?? "shimmer",
+};
+function voiceForLanguage(language?: string): string {
+  const c = (language ?? "en").toLowerCase();
+  return LANGUAGE_VOICE[c] ?? LANGUAGE_VOICE[c.split("-")[0]] ?? TTS_VOICE;
+}
+
 export async function POST(
   req: NextRequest,
-  _ctx: { params: Promise<{ id: string }> },
+  ctx: { params: Promise<{ id: string }> },
 ) {
   const session = await auth();
   if (!session?.user?.id) return new Response("unauthorized", { status: 401 });
@@ -27,6 +47,17 @@ export async function POST(
   }
   if (!OPENAI_KEY) return new Response("tts_not_configured", { status: 501 });
 
+  // Resolve the interview language → voice (ownership-checked read).
+  const { id } = await ctx.params;
+  const interview = await prisma.interview.findUnique({
+    where: { id },
+    select: { userId: true, language: true },
+  });
+  if (!interview || interview.userId !== session.user.id) {
+    return new Response("not_found", { status: 404 });
+  }
+  const voice = voiceForLanguage(interview.language);
+
   const upstream = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
     headers: {
@@ -35,7 +66,7 @@ export async function POST(
     },
     body: JSON.stringify({
       model: TTS_MODEL,
-      voice: TTS_VOICE,
+      voice,
       input: text.slice(0, 4000),
       // Raw PCM so the client can schedule audio as it streams in. OpenAI
       // returns 24 kHz, 16-bit signed little-endian, mono.

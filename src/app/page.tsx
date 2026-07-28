@@ -76,7 +76,7 @@ export default async function Home() {
             </span>
             <span className="truncate text-base sm:text-lg">interview</span>
           </Link>
-          <div className="flex shrink-0 items-center gap-3 text-sm font-medium sm:gap-5">
+          <div className="flex shrink-0 items-center gap-3 text-sm font-medium leading-none sm:gap-5">
             <a
               className="hidden transition-opacity hover:opacity-60 sm:inline"
               href="#how-it-works"
@@ -92,23 +92,25 @@ export default async function Home() {
             {userId ? (
               <>
                 <Link
-                  className="min-h-11 px-1 py-2 transition-opacity hover:opacity-60"
+                  className="inline-flex min-h-11 items-center px-1 py-2 transition-opacity hover:opacity-60"
                   href="/dashboard"
                 >
                   Dashboard
                 </Link>
-                <UserButton />
+                <span className="flex items-center">
+                  <UserButton />
+                </span>
               </>
             ) : (
               <>
                 <Link
-                  className="min-h-11 px-1 py-2 transition-opacity hover:opacity-60"
+                  className="inline-flex min-h-11 items-center px-1 py-2 transition-opacity hover:opacity-60"
                   href="/login"
                 >
                   Log in
                 </Link>
                 <Link
-                  className="min-h-11 rounded-full bg-[#d7f16a] px-3.5 py-2.5 transition-transform hover:-translate-y-0.5 sm:px-4"
+                  className="inline-flex min-h-11 items-center rounded-full bg-[#d7f16a] px-3.5 py-2.5 transition-transform hover:-translate-y-0.5 sm:px-4"
                   href="/signup"
                 >
                   Get started
@@ -134,7 +136,7 @@ export default async function Home() {
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:mt-10 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
               <Link
-                href="/signup"
+                href={userId ? "/interview/new" : "/signup"}
                 className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#17201e] px-6 py-3.5 text-sm font-semibold text-[#f6f5f0] transition-transform hover:-translate-y-0.5"
               >
                 Start practicing <span className="ml-3">↗</span>

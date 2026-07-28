@@ -51,6 +51,15 @@ function sttLocale(code?: string): string {
   return STT_LOCALE[c] ?? STT_LOCALE[c.split("-")[0]] ?? code ?? "en-US";
 }
 
+// Mobile browsers (esp. Android Chrome) give SpeechRecognition exclusive use of
+// the microphone: a simultaneously-held getUserMedia track blocks recognition
+// from ever acquiring the mic. Detect mobile so we can release that stream and
+// let recognition own the input device.
+function isMobileUA(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
 // T-13: the interviewer embeds [[ASK_WRITTEN:<id>]] to pose a written test.
 const WRITTEN_MARKER = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/gi;
 const stripMarkers = (s: string) =>
@@ -110,6 +119,9 @@ export default function InterviewRoom({
   const [messages, setMessages] = useState<Msg[]>(initialTurns);
   const [muted, setMuted] = useState(false);
   const [listening, setListening] = useState(false);
+  // Surfaced when the mic can't be acquired (permission blocked, no device, or
+  // in use elsewhere) so mobile users aren't left staring at a dead mic.
+  const [micError, setMicError] = useState<string | null>(null);
   const [interim, setInterim] = useState("");
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [speakingAgent, setSpeakingAgent] = useState<
@@ -143,6 +155,9 @@ export default function InterviewRoom({
   const expressionLevelRef = useRef<ExpressionLevel>(expressionLevel);
 
   const recogRef = useRef<SpeechRecognitionLike | null>(null);
+  // Set on a fatal recognition error (permission denied) so onend stops the
+  // auto-restart loop instead of hammering the mic. Cleared on a user gesture.
+  const recogFatalRef = useRef(false);
   const chatAbortRef = useRef<AbortController | null>(null);
   const leavingRef = useRef(false);
   const mutedRef = useRef(muted);
@@ -731,6 +746,7 @@ export default function InterviewRoom({
   useEffect(() => {
     let cancelled = false;
     let localCtx: AudioContext | null = null;
+    const mobile = isMobileUA();
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     if (!md?.getUserMedia) return;
     md.getUserMedia({
@@ -742,6 +758,15 @@ export default function InterviewRoom({
     })
       .then((stream) => {
         if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        // Mobile: SpeechRecognition needs exclusive mic access, so a persistent
+        // getUserMedia track blocks it from ever hearing the candidate. Use this
+        // call only to front-load the permission prompt, then release the stream
+        // immediately and let recognition own the mic. (Turn-based capture + the
+        // headphones tip cover echo; the energy VAD fails open when absent.)
+        if (mobile) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
@@ -777,8 +802,20 @@ export default function InterviewRoom({
           /* Analyser unavailable — recognition still works without energy gate */
         }
       })
-      .catch(() => {
-        /* permission denied / no device — SpeechRecognition still tries */
+      .catch((err: unknown) => {
+        // Permission denied / no device. On mobile this is the likely reason
+        // the mic "doesn't work" — surface it instead of failing silently.
+        const name = err instanceof Error ? err.name : "";
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          setMicError(
+            "Microphone access was blocked. Allow the mic for this site in your browser settings, then reload — or type your answers below.",
+          );
+        } else if (name === "NotFoundError" || name === "NotReadableError") {
+          setMicError(
+            "No microphone was found or it's in use by another app. Free it up, or type your answers below.",
+          );
+        }
+        /* SpeechRecognition still tries; the banner tells the user what to do. */
       });
     return () => {
       cancelled = true;
@@ -877,7 +914,9 @@ export default function InterviewRoom({
     };
     recog.onend = () => {
       setListening(false);
-      if (leavingRef.current) return;
+      // A fatal error (permission blocked) stops the restart loop — otherwise we
+      // hammer the mic and spin forever. A tap re-arms it (see gesture handler).
+      if (leavingRef.current || recogFatalRef.current) return;
       // auto-restart unless muted (keeps the mic always-on)
       if (!mutedRef.current) {
         try {
@@ -888,7 +927,27 @@ export default function InterviewRoom({
         }
       }
     };
-    recog.onerror = () => {};
+    recog.onstart = () => {
+      // Mic acquired successfully — clear any stale error banner.
+      recogFatalRef.current = false;
+      setMicError(null);
+    };
+    recog.onerror = (e) => {
+      const err = (e as unknown as { error?: string }).error ?? "";
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        // Permission denied or blocked by policy — fatal until re-granted.
+        recogFatalRef.current = true;
+        setListening(false);
+        setMicError(
+          "Microphone access is blocked. Allow the mic for this site in your browser settings, then reload — or type your answers below.",
+        );
+      } else if (err === "audio-capture") {
+        setMicError(
+          "No microphone was found or it's in use by another app. Free it up, or type your answers below.",
+        );
+      }
+      /* no-speech / aborted / network are recoverable — onend restarts. */
+    };
 
     try {
       recog.start();
@@ -945,8 +1004,11 @@ export default function InterviewRoom({
       const vad = vadCtxRef.current;
       if (vad && vad.state === "suspended") void vad.resume().catch(() => {});
       // iOS Safari blocks SpeechRecognition until a user gesture — retry start.
+      // A tap is also the user's chance to recover after they've (re)granted the
+      // mic, so clear the fatal flag and attempt one fresh start.
       const recog = recogRef.current;
       if (recog && !mutedRef.current && !listening) {
+        recogFatalRef.current = false;
         try {
           recog.start();
           setListening(true);
@@ -1075,6 +1137,15 @@ export default function InterviewRoom({
           This browser doesn’t support speech recognition — use Chrome, or type
           your answers below. (Headphones recommended so the mic doesn’t hear the
           AI.)
+        </div>
+      )}
+
+      {micError && (
+        <div
+          role="alert"
+          className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-800"
+        >
+          {micError}
         </div>
       )}
 
@@ -1270,7 +1341,10 @@ export default function InterviewRoom({
             let dot = "bg-gray-300";
             let label = "Ready — start speaking, or type below";
             let pulse = false;
-            if (muted) {
+            if (micError) {
+              dot = "bg-red-500";
+              label = "Mic unavailable — type your answers below";
+            } else if (muted) {
               dot = "bg-red-500";
               label = "Mic off — tap Unmute to speak";
             } else if (aiSpeaking) {

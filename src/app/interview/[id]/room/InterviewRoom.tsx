@@ -12,6 +12,8 @@ import {
   type WrittenQuestion,
 } from "@/lib/written-questions";
 import { QuestionCard } from "./QuestionCard";
+import { SpeakerAvatar } from "./SpeakerAvatar";
+import { SpeakingIndicator } from "./SpeakingIndicator";
 
 type Speaker = "interviewer" | "trainer" | "user";
 interface Msg {
@@ -48,10 +50,25 @@ function sttLocale(code?: string): string {
   return STT_LOCALE[c] ?? STT_LOCALE[c.split("-")[0]] ?? code ?? "en-US";
 }
 
+// T-13: the interviewer embeds [[ASK_WRITTEN:<id>]] to pose a written test.
+const WRITTEN_MARKER = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/gi;
+const stripMarkers = (s: string) =>
+  s.replace(WRITTEN_MARKER, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+// T-12: a practice answer must reach this score (0–100) to move on.
+const PASS_THRESHOLD = 80;
+// Parse "**Score:** NN/100" out of a trainer message.
+function parseScore(text: string): number | null {
+  const m = text.match(/score[^0-9]{0,12}(\d{1,3})\s*\/\s*100/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+}
+
 export default function InterviewRoom({
   interviewId,
   mode,
   candidateName,
+  candidateImageUrl,
   targetRole,
   language,
   initialTurns,
@@ -59,6 +76,7 @@ export default function InterviewRoom({
   interviewId: string;
   mode: "practice" | "interview";
   candidateName: string;
+  candidateImageUrl?: string | null;
   targetRole: string;
   language?: string;
   initialTurns: Msg[];
@@ -69,6 +87,9 @@ export default function InterviewRoom({
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState("");
   const [aiSpeaking, setAiSpeaking] = useState(false);
+  const [speakingAgent, setSpeakingAgent] = useState<
+    "interviewer" | "trainer" | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [lastQuestion, setLastQuestion] = useState<string>(
@@ -78,6 +99,8 @@ export default function InterviewRoom({
     null,
   );
   const [usedWrittenIds, setUsedWrittenIds] = useState<string[]>([]);
+  // T-12: last trainer score (practice mode); gates progressing to the next Q.
+  const [lastScore, setLastScore] = useState<number | null>(null);
 
   const recogRef = useRef<SpeechRecognitionLike | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -266,6 +289,7 @@ export default function InterviewRoom({
     drainingRef.current = false;
     lastSpeakEndRef.current = Date.now();
     setAiSpeaking(false);
+    setSpeakingAgent(null);
   }, [clearTtsFlushTimer]);
 
   // Pull chunks off the queue and stream them back-to-back on the timeline.
@@ -303,6 +327,7 @@ export default function InterviewRoom({
           if (!drainingRef.current && ttsQueueRef.current.length === 0) {
             lastSpeakEndRef.current = Date.now();
             setAiSpeaking(false);
+            setSpeakingAgent(null);
           }
         }, remainMs);
       }
@@ -396,6 +421,7 @@ export default function InterviewRoom({
       chatAbortRef.current = ac;
       setBusy(true);
       cancelSpeakRef.current = false;
+      setSpeakingAgent(agent);
       const idx = messages.length + (opts.userText ? 1 : 0);
       // optimistic: append user turn locally
       if (opts.userText) {
@@ -421,21 +447,46 @@ export default function InterviewRoom({
           buffer += decoder.decode(value, { stream: true });
           setMessages((m) => {
             const copy = [...m];
-            copy[copy.length - 1] = { speaker: agent, text: buffer };
+            copy[copy.length - 1] = { speaker: agent, text: stripMarkers(buffer) };
             return copy;
           });
-          // speak newly-completed sentences for low latency
+          // speak newly-completed sentences for low latency (markers never spoken)
           const match = buffer.slice(spokenUpTo).match(/[^.!?]+[.!?]+/g);
           if (match) {
-            for (const sentence of match) enqueueSpeech(sentence);
+            for (const sentence of match) {
+              const clean = stripMarkers(sentence);
+              if (clean) enqueueSpeech(clean);
+            }
             spokenUpTo += match.join("").length;
           }
         }
-        // speak any trailing text
-        const tail = buffer.slice(spokenUpTo).trim();
+        // speak any trailing text (minus control markers)
+        const tail = stripMarkers(buffer.slice(spokenUpTo));
         if (tail) enqueueSpeech(tail);
         finalizeSpeech();
-        if (agent === "interviewer") setLastQuestion(buffer);
+        // Ensure the final rendered bubble carries no control markers.
+        setMessages((m) => {
+          const copy = [...m];
+          copy[copy.length - 1] = { speaker: agent, text: stripMarkers(buffer) };
+          return copy;
+        });
+        if (agent === "interviewer") {
+          setLastQuestion(stripMarkers(buffer));
+          // T-13: interviewer decided to pose a written test question.
+          const wm = buffer.match(WRITTEN_MARKER);
+          const id = wm ? /ASK_WRITTEN:([a-z0-9_-]+)/i.exec(wm[0])?.[1] : null;
+          const q = id ? SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id) : null;
+          if (q) {
+            setUsedWrittenIds((prev) =>
+              prev.includes(q.id) ? prev : [...prev, q.id],
+            );
+            setLastQuestion(q.prompt);
+            setActiveWritten(q);
+          }
+        } else if (agent === "trainer" && mode === "practice") {
+          // T-12: score gates progressing to the next question.
+          setLastScore(parseScore(buffer));
+        }
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") return;
         setMessages((m) => {
@@ -452,13 +503,22 @@ export default function InterviewRoom({
       }
       void idx;
     },
-    [interviewId, messages.length, enqueueSpeech, finalizeSpeech],
+    [interviewId, messages.length, mode, enqueueSpeech, finalizeSpeech],
   );
+
+  // T-12: clear the score gate whenever the candidate starts a fresh answer,
+  // and let them advance to the next interviewer question once they've passed.
+  const continueToNextQuestion = useCallback(() => {
+    if (busyRef.current) return;
+    setLastScore(null);
+    void runAgent("interviewer", {});
+  }, [runAgent]);
 
   const handleUserUtterance = useCallback(
     (text: string) => {
       const t = text.trim();
       if (!t || busyRef.current) return;
+      setLastScore(null); // T-12: reset the gate for this new attempt
       if (mode === "practice") {
         // Trainer coaches the latest answer to the last interviewer question.
         // Read the question from a ref so the mount-time recognition handler
@@ -506,6 +566,7 @@ export default function InterviewRoom({
       );
       setBusy(true);
       cancelSpeakRef.current = false;
+      setSpeakingAgent("interviewer");
       setMessages((m) => [...m, { speaker: "interviewer", text: question }]);
       setLastQuestion(question);
       enqueueSpeech(question);
@@ -782,33 +843,75 @@ export default function InterviewRoom({
       )}
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-4">
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`flex ${m.speaker === "user" ? "justify-end" : "justify-start"}`}
-          >
+        {messages.map((m, i) => {
+          const isUser = m.speaker === "user";
+          const aiActive =
+            aiSpeaking &&
+            speakingAgent === m.speaker &&
+            (m.speaker === "interviewer" || m.speaker === "trainer");
+          const isLastOfSpeaker =
+            messages.findLastIndex((x) => x.speaker === m.speaker) === i;
+          const showWave = Boolean(aiActive && isLastOfSpeaker);
+          return (
             <div
-              className={`max-w-[min(85%,24rem)] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[80%] sm:px-4 ${
-                m.speaker === "user"
-                  ? "bg-indigo-600 text-white"
-                  : m.speaker === "trainer"
-                    ? "bg-amber-100 text-amber-900"
-                    : "bg-gray-100 text-gray-900"
-              }`}
+              key={i}
+              className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}
             >
-              <div className="mb-0.5 text-[10px] uppercase tracking-wide opacity-60">
-                {m.speaker}
+              {!isUser ? (
+                <div className="flex flex-col items-center gap-1">
+                  <SpeakerAvatar
+                    role={m.speaker}
+                    speaking={showWave}
+                  />
+                  <SpeakingIndicator active={showWave} tone="ai" />
+                </div>
+              ) : null}
+              <div
+                className={`max-w-[min(85%,24rem)] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[80%] sm:px-4 ${
+                  m.speaker === "user"
+                    ? "bg-indigo-600 text-white"
+                    : m.speaker === "trainer"
+                      ? "bg-amber-100 text-amber-900"
+                      : "bg-gray-100 text-gray-900"
+                }`}
+              >
+                <div className="mb-0.5 flex items-center gap-2 text-[10px] uppercase tracking-wide opacity-60">
+                  <span>{m.speaker}</span>
+                </div>
+                {m.text ? renderRich(m.text) : "…"}
               </div>
-              {m.text ? renderRich(m.text) : "…"}
+              {isUser ? (
+                <div className="flex flex-col items-center gap-1">
+                  <SpeakerAvatar
+                    role="user"
+                    name={candidateName}
+                    imageUrl={candidateImageUrl}
+                  />
+                </div>
+              ) : null}
             </div>
-          </div>
-        ))}
+          );
+        })}
         {(hasPendingAnswer || interim) && (
           <div className="flex flex-col items-end gap-2">
-            <div className="max-w-[min(85%,24rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[80%] sm:px-4">
-              {answerBufferRef.current
-                ? `${answerBufferRef.current}${interim ? " " + interim : ""}`
-                : interim}
+            <div className="flex items-end gap-2">
+              <div className="max-w-[min(85%,24rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[80%] sm:px-4">
+                {answerBufferRef.current
+                  ? `${answerBufferRef.current}${interim ? " " + interim : ""}`
+                  : interim}
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <SpeakerAvatar
+                  role="user"
+                  name={candidateName}
+                  imageUrl={candidateImageUrl}
+                  speaking={listening && !muted && !aiSpeaking}
+                />
+                <SpeakingIndicator
+                  active={listening && !muted && !aiSpeaking && Boolean(interim || hasPendingAnswer)}
+                  tone="user"
+                />
+              </div>
             </div>
             {hasPendingAnswer && !busy && (
               <button
@@ -832,6 +935,31 @@ export default function InterviewRoom({
             />
           </div>
         ) : null}
+        {mode === "practice" && lastScore != null && !activeWritten ? (
+          <div className="flex flex-col items-start gap-2">
+            <div
+              className={`max-w-[min(85%,26rem)] rounded-2xl px-3.5 py-2.5 text-sm sm:px-4 ${
+                lastScore >= PASS_THRESHOLD
+                  ? "bg-emerald-100 text-emerald-900"
+                  : "bg-amber-100 text-amber-900"
+              }`}
+            >
+              Score: <span className="font-semibold">{lastScore}/100</span>
+              {lastScore >= PASS_THRESHOLD
+                ? " — nice, you cleared the bar."
+                : ` — aim for ${PASS_THRESHOLD}+. Say the answer again to raise it.`}
+            </div>
+            {lastScore >= PASS_THRESHOLD && !busy ? (
+              <button
+                type="button"
+                onClick={continueToNextQuestion}
+                className="min-h-10 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Continue interview →
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <TypeFallback
@@ -840,9 +968,7 @@ export default function InterviewRoom({
         mode={mode}
         suggestions={suggestions.filter((s) => !usedSuggestionIds.includes(s.id))}
         onSuggest={(id, q) => void askSuggested(id, q)}
-        writtenQuestions={SAMPLE_WRITTEN_QUESTIONS.filter(
-          (q) => !usedWrittenIds.includes(q.id),
-        )}
+        writtenQuestions={[]}
         onWritten={openWrittenQuestion}
       />
     </div>

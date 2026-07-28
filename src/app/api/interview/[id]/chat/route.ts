@@ -103,8 +103,12 @@ export async function POST(
     messages,
     temperature: agent === "trainer" ? 0.4 : 0.7,
     onFinish: async ({ text }) => {
+      // T-13: the interviewer may embed an [[ASK_WRITTEN:<id>]] control marker to
+      // pose a written test. The live client reads it off the stream to open the
+      // question card; strip it before persisting so reloaded transcripts stay clean.
+      const stored = text.replace(/\[\[ASK_WRITTEN:[a-z0-9_-]+\]\]/gi, "").trim();
       await prisma.turn.create({
-        data: { interviewId: id, speaker: agent, text },
+        data: { interviewId: id, speaker: agent, text: stored || text },
       });
       if (interview.status !== "in_progress" && interview.status !== "completed") {
         await prisma.interview.update({

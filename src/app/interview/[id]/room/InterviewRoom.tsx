@@ -129,6 +129,7 @@ export default function InterviewRoom({
   // T-23: logged-in sessions have a persistent ten-minute deadline. The
   // deadline is stored per interview so a refresh/reconnect cannot reset it.
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [timeExpired, setTimeExpired] = useState(false);
   const deadlineKey = `interview:${interviewId}:deadline`;
   // T-14: how elaborate the AI's language is (selectable + switchable). A ref
   // mirrors it so the mount-only recognition path sends the current level too.
@@ -459,7 +460,8 @@ export default function InterviewRoom({
       setTimeLeft(remaining);
       if (remaining === 0) {
         window.localStorage.removeItem(deadlineKey);
-        handleFinish();
+        setTimeExpired(true);
+        window.setTimeout(handleFinish, 1000);
       }
     };
     update();
@@ -924,6 +926,12 @@ export default function InterviewRoom({
           </button>
         </div>
       </header>
+
+      {timeExpired && (
+        <div role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+          Time limit reached — finishing this interview safely.
+        </div>
+      )}
 
       {/* T-14/T-19: expression level — how elaborate the AI talks (not role
           difficulty). Kept OUTSIDE the scrolling transcript so it stays visible

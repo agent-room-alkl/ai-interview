@@ -182,6 +182,8 @@ export default function InterviewRoom({
   // RMS below this (0–1 float) is treated as ambient noise, not speech.
   const MIC_ENERGY_FLOOR = 0.012;
   const micRmsRef = useRef(0);
+  const vadActiveRef = useRef(false);
+  const vadCtxRef = useRef<AudioContext | null>(null);
   const vadRafRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -751,6 +753,8 @@ export default function InterviewRoom({
               .webkitAudioContext;
           if (!AC) return;
           localCtx = new AC();
+          vadCtxRef.current = localCtx;
+          if (localCtx.state === "suspended") void localCtx.resume().catch(() => {});
           const source = localCtx.createMediaStreamSource(stream);
           const analyser = localCtx.createAnalyser();
           analyser.fftSize = 512;
@@ -765,6 +769,7 @@ export default function InterviewRoom({
               sum += v * v;
             }
             micRmsRef.current = Math.sqrt(sum / data.length);
+            vadActiveRef.current = true;
             vadRafRef.current = requestAnimationFrame(tick);
           };
           vadRafRef.current = requestAnimationFrame(tick);
@@ -782,6 +787,8 @@ export default function InterviewRoom({
       micStreamRef.current?.getTracks().forEach((t) => t.stop());
       micStreamRef.current = null;
       if (localCtx) void localCtx.close().catch(() => {});
+      vadCtxRef.current = null;
+      vadActiveRef.current = false;
       micRmsRef.current = 0;
     };
   }, []);
@@ -845,7 +852,10 @@ export default function InterviewRoom({
       // stops the Trainer/interviewer from interrupting halfway through.
       const finalTrim = finalText.trim();
       // T-28: ignore finals while mic energy is below ambient floor (room noise).
-      const energyOk = micRmsRef.current >= MIC_ENERGY_FLOOR;
+      // Fail-open when VAD isn't reporting yet (mobile AudioContext often stays
+      // suspended until a user gesture — RMS stays 0 and would block all speech).
+      const energyOk =
+        !vadActiveRef.current || micRmsRef.current >= MIC_ENERGY_FLOOR;
       if (finalTrim && energyOk) {
         answerBufferRef.current = answerBufferRef.current
           ? `${answerBufferRef.current} ${finalTrim}`
@@ -932,6 +942,18 @@ export default function InterviewRoom({
     const resume = () => {
       const ctx = audioCtxRef.current;
       if (ctx && ctx.state === "suspended") void ctx.resume().catch(() => {});
+      const vad = vadCtxRef.current;
+      if (vad && vad.state === "suspended") void vad.resume().catch(() => {});
+      // iOS Safari blocks SpeechRecognition until a user gesture — retry start.
+      const recog = recogRef.current;
+      if (recog && !mutedRef.current && !listening) {
+        try {
+          recog.start();
+          setListening(true);
+        } catch {
+          /* already running */
+        }
+      }
     };
     window.addEventListener("pointerdown", resume);
     window.addEventListener("keydown", resume);

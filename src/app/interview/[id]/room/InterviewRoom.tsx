@@ -65,6 +65,30 @@ function parseScore(text: string): number | null {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
 }
 
+// T-18: filler / acknowledgement words that, on their own, aren't a real answer.
+const FILLER_WORDS = new Set([
+  "ok", "okay", "kay", "yeah", "yea", "yep", "yup", "yes", "no", "nope", "nah",
+  "um", "umm", "uh", "uhh", "er", "erm", "hmm", "hm", "mm", "mmm", "mhm",
+  "hi", "hello", "hey", "sure", "right", "cool", "nice", "thanks", "huh", "what",
+]);
+// True when the captured text is empty, noise, or only filler — i.e. the
+// candidate didn't really answer, so we should ask them to say it again rather
+// than score/coach it.
+function isTrivialAnswer(text: string): boolean {
+  const cleaned = text
+    .trim()
+    .toLowerCase()
+    .replace(/[.,!?;:…'"—-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return true;
+  const words = cleaned.split(" ").filter(Boolean);
+  if (words.length === 0) return true;
+  if (words.every((w) => FILLER_WORDS.has(w))) return true;
+  if (words.length === 1 && cleaned.length <= 3) return true;
+  return false;
+}
+
 export default function InterviewRoom({
   interviewId,
   mode,
@@ -532,6 +556,22 @@ export default function InterviewRoom({
       const t = text.trim();
       if (!t || busyRef.current) return;
       setLastScore(null); // T-12: reset the gate for this new attempt
+      // T-18: empty / noise / filler-only capture — don't score it, just show
+      // what was heard and ask the candidate to say it again.
+      if (isTrivialAnswer(t)) {
+        const nudge = "I didn't catch a clear answer — please say it again.";
+        const who: Speaker = mode === "practice" ? "trainer" : "interviewer";
+        setMessages((m) => [
+          ...m,
+          { speaker: "user", text: t },
+          { speaker: who, text: nudge },
+        ]);
+        cancelSpeakRef.current = false;
+        setSpeakingAgent(who);
+        enqueueSpeech(nudge);
+        finalizeSpeech();
+        return;
+      }
       if (mode === "practice") {
         // Trainer coaches the latest answer to the last interviewer question.
         // Read the question from a ref so the mount-time recognition handler
@@ -545,7 +585,7 @@ export default function InterviewRoom({
         void runAgent("interviewer", { userText: t });
       }
     },
-    [mode, runAgent],
+    [mode, runAgent, enqueueSpeech, finalizeSpeech],
   );
 
   // T-01: submit whatever the candidate has said so far (silence-triggered or

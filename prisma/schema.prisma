@@ -29,6 +29,7 @@ model Interview {
   resumeText    String
   resumeFileUrl String?
   targetRole    String?
+  language      String   @default("en") // BCP-47 primary subtag the interview is conducted in (detected from résumé, user-overridable)
   mode          String // "practice" | "interview"
   status        String   @default("draft") // draft | ready | in_progress | completed
   createdAt     DateTime @default(now())

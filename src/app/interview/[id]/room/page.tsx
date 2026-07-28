@@ -30,6 +30,7 @@ export default async function RoomPage({
       mode={interview.mode as "practice" | "interview"}
       candidateName={interview.candidateName}
       targetRole={interview.targetRole}
+      language={interview.language}
       initialTurns={initialTurns}
     />
   );

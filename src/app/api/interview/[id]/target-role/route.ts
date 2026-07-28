@@ -15,7 +15,7 @@ export async function POST(
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const { id } = await params;
-  const { role } = await req.json();
+  const { role, language } = await req.json();
   if (typeof role !== "string" || !role.trim()) {
     return NextResponse.json({ error: "role_required" }, { status: 400 });
   }
@@ -23,9 +23,18 @@ export async function POST(
   if (!interview || interview.userId !== session.user.id) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
+  // Optional language override chosen by the user on the role-selection screen.
+  const langOverride =
+    typeof language === "string" && language.trim()
+      ? language.trim().toLowerCase()
+      : undefined;
   await prisma.interview.update({
     where: { id },
-    data: { targetRole: role.trim(), status: "ready" },
+    data: {
+      targetRole: role.trim(),
+      status: "ready",
+      ...(langOverride ? { language: langOverride } : {}),
+    },
   });
   return NextResponse.json({ ok: true });
 }

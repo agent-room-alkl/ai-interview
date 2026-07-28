@@ -60,6 +60,7 @@ export async function POST(
     targetRole: interview.targetRole,
     resumeText: interview.resumeText ?? "",
     mode: interview.mode as Mode,
+    language: interview.language,
   };
 
   // Persist an incoming user answer if present.

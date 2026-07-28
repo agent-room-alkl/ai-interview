@@ -23,17 +23,39 @@ function renderRich(text: string) {
   );
 }
 
+// Map a stored BCP-47 primary subtag to a SpeechRecognition locale tag.
+const STT_LOCALE: Record<string, string> = {
+  en: "en-US",
+  zh: "zh-CN",
+  es: "es-ES",
+  fr: "fr-FR",
+  de: "de-DE",
+  ja: "ja-JP",
+  ko: "ko-KR",
+  pt: "pt-BR",
+  hi: "hi-IN",
+  it: "it-IT",
+  ru: "ru-RU",
+  ar: "ar-SA",
+};
+function sttLocale(code?: string): string {
+  const c = (code ?? "en").toLowerCase();
+  return STT_LOCALE[c] ?? STT_LOCALE[c.split("-")[0]] ?? code ?? "en-US";
+}
+
 export default function InterviewRoom({
   interviewId,
   mode,
   candidateName,
   targetRole,
+  language,
   initialTurns,
 }: {
   interviewId: string;
   mode: "practice" | "interview";
   candidateName: string;
   targetRole: string;
+  language?: string;
   initialTurns: Msg[];
 }) {
   const router = useRouter();
@@ -536,7 +558,9 @@ export default function InterviewRoom({
         : undefined;
     if (!Ctor) return;
     const recog = new Ctor();
-    recog.lang = "en-US";
+    // T-05: recognize in the interview's language (detected from the résumé),
+    // not a hard-coded en-US. `language` is stable for the session.
+    recog.lang = sttLocale(language);
     recog.continuous = true;
     recog.interimResults = true;
     recogRef.current = recog;

@@ -18,6 +18,35 @@ export interface EngineContext {
   targetRole: string;
   resumeText: string;
   mode: Mode;
+  /** BCP-47 primary subtag the interview is conducted in (e.g. "en", "zh"). */
+  language?: string;
+}
+
+// Human-readable names for the languages we localize the interview into. Falls
+// back to the raw subtag so an unlisted language still yields a usable prompt.
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English",
+  zh: "Chinese (Mandarin)",
+  es: "Spanish",
+  fr: "French",
+  de: "German",
+  ja: "Japanese",
+  ko: "Korean",
+  pt: "Portuguese",
+  hi: "Hindi",
+  it: "Italian",
+  ru: "Russian",
+  ar: "Arabic",
+};
+
+export function languageName(code?: string): string {
+  const c = (code ?? "en").toLowerCase();
+  return LANGUAGE_NAMES[c] ?? LANGUAGE_NAMES[c.split("-")[0]] ?? code ?? "English";
+}
+
+function languageDirective(c: EngineContext): string {
+  const name = languageName(c.language);
+  return `IMPORTANT: Conduct this entire session in ${name}. Every question, follow-up, and piece of feedback you write must be in ${name}, matching the candidate's résumé language. Do not switch languages unless the candidate does.`;
 }
 
 export interface TranscriptTurn {
@@ -40,6 +69,8 @@ export function interviewerSystemPrompt(c: EngineContext): string {
   return `You are an experienced hiring interviewer for the role of "${c.targetRole}".
 ${modeNote}
 
+${languageDirective(c)}
+
 Rules:
 - Ask ONE question at a time. Keep questions concise and spoken-friendly (they will be read aloud via TTS).
 - Tailor questions to the candidate's résumé and the target role; mix behavioral and role-specific technical questions.
@@ -53,6 +84,8 @@ ${sharedContext(c)}`;
 export function trainerSystemPrompt(c: EngineContext): string {
   return `You are an expert interview COACH ("Trainer") helping "${c.candidateName}" prepare for a "${c.targetRole}" interview.
 You are given the interviewer's most recent QUESTION and the candidate's ANSWER.
+
+${languageDirective(c)}
 
 Keep the FEEDBACK short and punchy — the candidate is practicing out loud and needs a signal, not an essay. Only the practice answer may be long and detailed.
 

@@ -9,7 +9,7 @@ export default async function DashboardPage() {
   return (
     <main className="min-h-dvh bg-[#f6f5f0] text-[#17201e]">
       <div className="safe-px mx-auto max-w-7xl px-4 py-8 sm:px-10 sm:py-10 lg:px-16">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm text-[#65736d]">Your practice space</p>
             <h1 className="mt-3 text-4xl font-semibold tracking-[-0.07em] sm:text-5xl">

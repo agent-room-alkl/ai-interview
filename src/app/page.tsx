@@ -105,7 +105,7 @@ export default async function Home() {
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:mt-10 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
               <Link
-                href="/signup"
+                href={userId ? "/interview/new" : "/signup"}
                 className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#17201e] px-6 py-3.5 text-sm font-semibold text-[#f6f5f0] transition-transform hover:-translate-y-0.5"
               >
                 Start practicing <span className="ml-3">↗</span>

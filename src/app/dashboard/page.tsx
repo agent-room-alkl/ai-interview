@@ -7,8 +7,8 @@ export default async function DashboardPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
   return (
-    <main className="min-h-dvh bg-[#f6f5f0] px-4 py-8 text-[#17201e] sm:px-10 sm:py-10">
-      <div className="mx-auto max-w-4xl">
+    <main className="min-h-dvh bg-[#f6f5f0] text-[#17201e]">
+      <div className="safe-px mx-auto max-w-7xl px-4 py-8 sm:px-10 sm:py-10 lg:px-16">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm text-[#65736d]">Your practice space</p>
@@ -18,7 +18,7 @@ export default async function DashboardPage() {
           </div>
           <UserButton />
         </div>
-        <div className="mt-8 rounded-3xl bg-[#17201e] p-6 text-[#f6f5f0] sm:mt-10 sm:p-8">
+        <div className="mt-8 max-w-2xl rounded-3xl bg-[#17201e] p-6 text-[#f6f5f0] sm:mt-10 sm:p-8">
           <p className="text-sm text-[#a9bbb2]">Ready when you are</p>
           <h2 className="mt-3 text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
             Start a tailored interview.

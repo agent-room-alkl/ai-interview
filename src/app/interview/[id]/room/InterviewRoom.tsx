@@ -65,6 +65,30 @@ function parseScore(text: string): number | null {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
 }
 
+// T-18: filler / acknowledgement words that, on their own, aren't a real answer.
+const FILLER_WORDS = new Set([
+  "ok", "okay", "kay", "yeah", "yea", "yep", "yup", "yes", "no", "nope", "nah",
+  "um", "umm", "uh", "uhh", "er", "erm", "hmm", "hm", "mm", "mmm", "mhm",
+  "hi", "hello", "hey", "sure", "right", "cool", "nice", "thanks", "huh", "what",
+]);
+// True when the captured text is empty, noise, or only filler — i.e. the
+// candidate didn't really answer, so we should ask them to say it again rather
+// than score/coach it.
+function isTrivialAnswer(text: string): boolean {
+  const cleaned = text
+    .trim()
+    .toLowerCase()
+    .replace(/[.,!?;:…'"—-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return true;
+  const words = cleaned.split(" ").filter(Boolean);
+  if (words.length === 0) return true;
+  if (words.every((w) => FILLER_WORDS.has(w))) return true;
+  if (words.length === 1 && cleaned.length <= 3) return true;
+  return false;
+}
+
 export default function InterviewRoom({
   interviewId,
   mode,
@@ -532,6 +556,22 @@ export default function InterviewRoom({
       const t = text.trim();
       if (!t || busyRef.current) return;
       setLastScore(null); // T-12: reset the gate for this new attempt
+      // T-18: empty / noise / filler-only capture — don't score it, just show
+      // what was heard and ask the candidate to say it again.
+      if (isTrivialAnswer(t)) {
+        const nudge = "I didn't catch a clear answer — please say it again.";
+        const who: Speaker = mode === "practice" ? "trainer" : "interviewer";
+        setMessages((m) => [
+          ...m,
+          { speaker: "user", text: t },
+          { speaker: who, text: nudge },
+        ]);
+        cancelSpeakRef.current = false;
+        setSpeakingAgent(who);
+        enqueueSpeech(nudge);
+        finalizeSpeech();
+        return;
+      }
       if (mode === "practice") {
         // Trainer coaches the latest answer to the last interviewer question.
         // Read the question from a ref so the mount-time recognition handler
@@ -545,7 +585,7 @@ export default function InterviewRoom({
         void runAgent("interviewer", { userText: t });
       }
     },
-    [mode, runAgent],
+    [mode, runAgent, enqueueSpeech, finalizeSpeech],
   );
 
   // T-01: submit whatever the candidate has said so far (silence-triggered or
@@ -847,24 +887,30 @@ export default function InterviewRoom({
         </div>
       </header>
 
-      {/* T-14: expression level — how elaborate the AI talks (not role difficulty).
-          Selectable at the start and switchable mid-interview; next turn applies. */}
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-        <label htmlFor="expr-level" className="font-medium">
+      {/* T-14/T-19: expression level — how elaborate the AI talks (not role
+          difficulty). Kept OUTSIDE the scrolling transcript so it stays visible
+          at the top; selectable at the start and switchable mid-interview
+          (next turn applies). Styled as a distinct control bar so it reads as
+          an operable control rather than faint caption text. */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+        <label
+          htmlFor="expr-level"
+          className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+        >
           Expression level
         </label>
         <select
           id="expr-level"
           value={expressionLevel}
           onChange={(e) => setExpressionLevel(e.target.value as ExpressionLevel)}
-          className="min-h-9 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800"
+          className="min-h-9 flex-1 rounded-lg border border-gray-400 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 shadow-sm sm:flex-none"
         >
           <option value="clear">Clear · plain words, short sentences</option>
           <option value="professional">Professional · standard workplace tone</option>
           <option value="advanced">Advanced · domain terms &amp; depth</option>
           <option value="expert">Expert · dense &amp; rigorous</option>
         </select>
-        <span className="hidden sm:inline">
+        <span className="w-full text-xs text-gray-500 sm:w-auto">
           Changes how elaborate the AI talks — not the role difficulty
         </span>
       </div>

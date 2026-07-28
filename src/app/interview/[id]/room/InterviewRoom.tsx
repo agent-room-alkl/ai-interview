@@ -868,10 +868,17 @@ export default function InterviewRoom({
         : undefined;
     if (!Ctor) return;
     const recog = new Ctor();
+    const mobile = isMobileUA();
     // T-05: recognize in the interview's language (detected from the résumé),
     // not a hard-coded en-US. `language` is stable for the session.
     recog.lang = sttLocale(language);
-    recog.continuous = true;
+    // Android Chrome's *continuous* recognition is the source of the runaway
+    // duplication: it never advances resultIndex and keeps re-emitting fluctuating
+    // re-recognitions of the same utterance ("…migration project" / "…projects" /
+    // "…migration") as fresh finals, which pile up. One-shot sessions (restarted
+    // in onend) give one clean utterance per session instead. Desktop Chrome has
+    // no such bug and benefits from a single always-on continuous session.
+    recog.continuous = !mobile;
     recog.interimResults = true;
     recogRef.current = recog;
 
@@ -892,11 +899,13 @@ export default function InterviewRoom({
         return;
       }
       // Rebuild this recognition session's final text from the WHOLE results
-      // list every event (results[] is the authoritative cumulative record) and
-      // fold pieces with mergeTranscript, rather than appending the delta from
-      // e.resultIndex. On Android Chrome resultIndex stays at 0 and finals are
-      // re-emitted as a growing restatement, so the old delta-append double-
-      // counted them into runaway repetition; rebuild + merge is idempotent.
+      // list every event (results[] is the authoritative cumulative record)
+      // rather than appending the delta from e.resultIndex (Android keeps that
+      // at 0, so appending double-counts). How finals are folded depends on the
+      // platform: mobile is a one-shot session covering a SINGLE utterance that
+      // Android re-emits as fluctuating variants, so keep the single longest
+      // final; desktop's continuous session strings together distinct segments,
+      // so merge them in order.
       let sessionFinal = "";
       let interimText = "";
       for (let i = 0; i < e.results.length; i++) {
@@ -914,8 +923,14 @@ export default function InterviewRoom({
         ) {
           continue;
         }
-        if (r.isFinal) sessionFinal = mergeTranscript(sessionFinal, piece);
-        else interimText += piece;
+        if (r.isFinal) {
+          const p = piece.trim();
+          sessionFinal = mobile
+            ? p.length > sessionFinal.length
+              ? p
+              : sessionFinal
+            : mergeTranscript(sessionFinal, piece);
+        } else interimText += piece;
       }
       setInterim(interimText);
       // T-01: accumulate final speech into a buffer and DON'T submit yet — the

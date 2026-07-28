@@ -126,6 +126,11 @@ export default function InterviewRoom({
   const [usedWrittenIds, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
+  // T-23: logged-in sessions have a persistent ten-minute deadline. The
+  // deadline is stored per interview so a refresh/reconnect cannot reset it.
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [timeExpired, setTimeExpired] = useState(false);
+  const deadlineKey = `interview:${interviewId}:deadline`;
   // T-14: how elaborate the AI's language is (selectable + switchable). A ref
   // mirrors it so the mount-only recognition path sends the current level too.
   const [expressionLevel, setExpressionLevel] =
@@ -445,6 +450,31 @@ export default function InterviewRoom({
       }
     }, 1200);
   }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer]);
+
+  // T-23: initialize once from a persisted absolute deadline, then tick from
+  // Date.now() so tab throttling does not make the countdown drift.
+  useEffect(() => {
+    const now = Date.now();
+    const stored = window.localStorage.getItem(deadlineKey);
+    const parsed = stored ? Number(stored) : NaN;
+    const deadline = Number.isFinite(parsed) && parsed > now ? parsed : now + 10 * 60 * 1000;
+    window.localStorage.setItem(deadlineKey, String(deadline));
+    let finished = false;
+    const update = () => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      if (remaining === 0 && !finished) {
+        finished = true;
+        window.localStorage.removeItem(deadlineKey);
+        setTimeExpired(true);
+        window.clearInterval(timer);
+        window.setTimeout(handleFinish, 1000);
+      }
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [deadlineKey, handleFinish]);
 
   // ---------- Chat (streaming text from an agent) ----------
   const runAgent = useCallback(
@@ -900,13 +930,16 @@ export default function InterviewRoom({
     !!(window.SpeechRecognition ?? window.webkitSpeechRecognition);
 
   return (
-    <div className="safe-pt safe-px mx-auto flex h-dvh max-w-3xl flex-col px-3 sm:px-4">
-      <header className="flex flex-col gap-3 border-b border-gray-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="safe-pt safe-px mx-auto flex h-dvh w-full max-w-6xl flex-col px-3 sm:px-6 lg:max-w-7xl lg:px-10">
+      <header className="flex flex-col gap-3 border-b border-gray-200 pb-3 pt-1 sm:flex-row sm:items-end sm:justify-between sm:pb-4">
         <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold sm:text-lg">
-            {mode === "practice" ? "Practice" : "Interview"} · {targetRole}
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+            {mode === "practice" ? "Practice room" : "Interview room"}
+          </p>
+          <h1 className="mt-1 truncate text-lg font-semibold tracking-[-0.03em] sm:text-2xl">
+            {targetRole}
           </h1>
-          <p className="truncate text-xs text-gray-500">
+          <p className="mt-0.5 truncate text-xs text-gray-500 sm:text-sm">
             {candidateName} ·{" "}
             {aiSpeaking
               ? "AI speaking…"
@@ -917,11 +950,24 @@ export default function InterviewRoom({
                   : "idle"}
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {timeLeft !== null && (
+            <div
+              aria-label={`Time remaining ${Math.floor(timeLeft / 60)} minutes ${timeLeft % 60} seconds`}
+              className={`min-w-[5.5rem] rounded-xl border px-3 py-2 text-center text-xs font-semibold tabular-nums ${
+                timeLeft <= 60
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-gray-200 bg-gray-50 text-gray-700"
+              }`}
+            >
+              <span className="block text-[10px] uppercase tracking-wide opacity-70">Time left</span>
+              <span className="text-sm">{Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}</span>
+            </div>
+          )}
           <button
             type="button"
             onClick={toggleMute}
-            className={`min-h-11 flex-1 rounded-xl px-4 py-2.5 text-sm font-medium sm:flex-none ${
+            className={`min-h-11 flex-1 rounded-xl px-4 py-2.5 text-sm font-medium sm:flex-none sm:px-5 ${
               muted ? "bg-red-600 text-white" : "border border-gray-300"
             }`}
           >
@@ -931,19 +977,25 @@ export default function InterviewRoom({
             type="button"
             disabled={finishing}
             onClick={handleFinish}
-            className="min-h-11 flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60 sm:flex-none"
+            className="min-h-11 flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60 sm:flex-none sm:px-5"
           >
             {finishing ? "Finishing…" : "Finish"}
           </button>
         </div>
       </header>
 
+      {timeExpired && (
+        <div role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+          Time limit reached — finishing this interview safely.
+        </div>
+      )}
+
       {/* T-14/T-19: expression level — how elaborate the AI talks (not role
           difficulty). Kept OUTSIDE the scrolling transcript so it stays visible
           at the top; selectable at the start and switchable mid-interview
           (next turn applies). Styled as a distinct control bar so it reads as
           an operable control rather than faint caption text. */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 sm:px-4">
         <label
           htmlFor="expr-level"
           className="text-xs font-semibold uppercase tracking-wide text-gray-700"
@@ -954,7 +1006,7 @@ export default function InterviewRoom({
           id="expr-level"
           value={expressionLevel}
           onChange={(e) => setExpressionLevel(e.target.value as ExpressionLevel)}
-          className="min-h-9 flex-1 rounded-lg border border-gray-400 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 shadow-sm sm:flex-none"
+          className="min-h-9 w-full rounded-lg border border-gray-400 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 shadow-sm sm:w-auto sm:min-w-[18rem]"
         >
           <option value="clear">Clear · plain words, short sentences</option>
           <option value="professional">Professional · standard workplace tone</option>
@@ -980,7 +1032,7 @@ export default function InterviewRoom({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain py-4 sm:space-y-5 sm:py-6">
         {messages.map((m, i) => {
           const isUser = m.speaker === "user";
           const aiActive =
@@ -993,7 +1045,7 @@ export default function InterviewRoom({
           return (
             <div
               key={i}
-              className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}
+              className={`flex items-end gap-2.5 sm:gap-3 ${isUser ? "justify-end" : "justify-start"}`}
             >
               {!isUser ? (
                 <div className="flex flex-col items-center gap-1">
@@ -1005,7 +1057,7 @@ export default function InterviewRoom({
                 </div>
               ) : null}
               <div
-                className={`max-w-[min(85%,24rem)] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[80%] sm:px-4 ${
+                className={`max-w-[min(92%,36rem)] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-6 sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 sm:text-[15px] sm:leading-7 lg:max-w-[min(72%,48rem)] ${
                   m.speaker === "user"
                     ? "bg-indigo-600 text-white"
                     : m.speaker === "trainer"
@@ -1032,8 +1084,8 @@ export default function InterviewRoom({
         })}
         {(hasPendingAnswer || interim) && (
           <div className="flex flex-col items-end gap-2">
-            <div className="flex items-end gap-2">
-              <div className="max-w-[min(85%,24rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[80%] sm:px-4">
+            <div className="flex items-end gap-2.5 sm:gap-3">
+              <div className="max-w-[min(92%,36rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 lg:max-w-[min(72%,48rem)]">
                 {answerBufferRef.current
                   ? `${answerBufferRef.current}${interim ? " " + interim : ""}`
                   : interim}
@@ -1076,7 +1128,7 @@ export default function InterviewRoom({
         {mode === "practice" && lastScore != null && !activeWritten ? (
           <div className="flex flex-col items-start gap-2">
             <div
-              className={`max-w-[min(85%,26rem)] rounded-2xl px-3.5 py-2.5 text-sm sm:px-4 ${
+              className={`max-w-[min(92%,36rem)] rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 lg:max-w-[min(72%,48rem)] ${
                 lastScore >= PASS_THRESHOLD
                   ? "bg-emerald-100 text-emerald-900"
                   : "bg-amber-100 text-amber-900"
@@ -1088,7 +1140,7 @@ export default function InterviewRoom({
                 : ` — aim for ${PASS_THRESHOLD}+. Say the answer again to raise it.`}
             </div>
             {lastScore < PASS_THRESHOLD ? (
-              <p className="max-w-[min(85%,26rem)] text-xs text-gray-400">
+              <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
                 Graded from your answer as transcribed above. If it looks garbled,
                 speech-to-text misheard you — try speaking clearly or typing.
               </p>
@@ -1109,7 +1161,7 @@ export default function InterviewRoom({
       {/* T-16: explicit voice-input status so the user always knows whether the
           mic is capturing them, waiting, processing — or paused for the AI. */}
       {supported ? (
-        <div className="flex items-center gap-2 px-1 pt-1 text-xs">
+        <div className="flex items-center gap-2 border-t border-gray-100 px-1 pt-2 text-xs sm:pt-3">
           {(() => {
             let dot = "bg-gray-300";
             let label = "Ready — start speaking, or type below";

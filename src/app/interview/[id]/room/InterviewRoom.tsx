@@ -82,6 +82,29 @@ function mergeTranscript(acc: string, piece: string): string {
   return `${acc} ${p}`;
 }
 
+function toWords(s: string): string[] {
+  return s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+// The mic stays always-on, so while the AI is talking a speaker (no headphones)
+// setup will transcribe the AI's own TTS. Treat a captured phrase as echo — not
+// the candidate — when most of its words appear in what the AI is currently
+// saying. Real barge-in (the candidate talking over the AI about something else)
+// shares few words and passes through. Headphone users never hit this at all.
+function isLikelyEcho(candidate: string, aiSpoken: string): boolean {
+  const words = toWords(candidate);
+  if (words.length === 0) return true;
+  if (!aiSpoken) return false;
+  const aiSet = new Set(toWords(aiSpoken));
+  if (aiSet.size === 0) return false;
+  const overlap = words.filter((w) => aiSet.has(w)).length / words.length;
+  return overlap >= 0.7;
+}
+
 // T-13: the interviewer embeds [[ASK_WRITTEN:<id>]] to pose a written test.
 const WRITTEN_MARKER = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/gi;
 const stripMarkers = (s: string) =>
@@ -218,10 +241,16 @@ export default function InterviewRoom({
   // would otherwise capture stale closures; these refs let it call the latest.
   const submitAnswerRef = useRef<() => void>(() => {});
   const lastQuestionRef = useRef(lastQuestion);
-  // T-28: silence / cooldown tuned to reduce room-noise false submits without
+  // What the AI is currently saying (updated as its reply streams). Used to
+  // reject the AI's own voice echoing back into the always-on mic on speaker
+  // setups, and to tell real barge-in from echo.
+  const aiUtteranceRef = useRef("");
+  // Lets the mount-only recognizer stop the AI's TTS for barge-in without
+  // capturing a stale stopSpeaking closure.
+  const stopSpeakingRef = useRef<() => void>(() => {});
+  // T-28: silence window tuned to reduce room-noise false submits without
   // swallowing short but real answers (pair with energy VAD + tip banner).
   const SILENCE_MS = 1800;
-  const SPEAK_COOLDOWN_MS = 2000;
   // RMS below this (0–1 float) is treated as ambient noise, not speech.
   const MIC_ENERGY_FLOOR = 0.012;
   const micRmsRef = useRef(0);
@@ -380,9 +409,15 @@ export default function InterviewRoom({
     if (ctx) nextStartRef.current = ctx.currentTime;
     drainingRef.current = false;
     lastSpeakEndRef.current = Date.now();
+    aiUtteranceRef.current = "";
     setAiSpeaking(false);
     setSpeakingAgent(null);
   }, [clearTtsFlushTimer]);
+
+  // Keep a live handle to stopSpeaking for the mount-only recognizer (barge-in).
+  useEffect(() => {
+    stopSpeakingRef.current = stopSpeaking;
+  }, [stopSpeaking]);
 
   // Pull chunks off the queue and stream them back-to-back on the timeline.
   const startDrain = useCallback(async () => {
@@ -566,6 +601,9 @@ export default function InterviewRoom({
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
+          // Track what the AI is saying so the always-on mic can reject its own
+          // TTS echoing back (speaker setups) instead of logging it as an answer.
+          aiUtteranceRef.current = stripMarkers(buffer);
           setMessages((m) => {
             const copy = [...m];
             copy[copy.length - 1] = { speaker: agent, text: stripMarkers(buffer) };
@@ -656,6 +694,7 @@ export default function InterviewRoom({
           { speaker: who, text: nudge },
         ]);
         cancelSpeakRef.current = false;
+        aiUtteranceRef.current = nudge;
         setSpeakingAgent(who);
         enqueueSpeech(nudge);
         finalizeSpeech();
@@ -724,6 +763,7 @@ export default function InterviewRoom({
       );
       setBusy(true);
       cancelSpeakRef.current = false;
+      aiUtteranceRef.current = question;
       setSpeakingAgent("interviewer");
       setMessages((m) => [...m, { speaker: "interviewer", text: question }]);
       setLastQuestion(question);
@@ -884,20 +924,11 @@ export default function InterviewRoom({
 
     recog.onresult = (e) => {
       if (mutedRef.current) return;
-      // Turn-based capture. On speaker devices (no headphones) the mic hears the
-      // AI's own TTS and room noise; without acoustic echo cancellation the
-      // browser can't tell them from the candidate, so those got transcribed as
-      // the user's answer. Ignore the mic entirely while the AI is speaking,
-      // while a response is being generated, and for a short cooldown after TTS
-      // ends — then listen for the real answer.
-      if (
-        aiSpeakingRef.current ||
-        busyRef.current ||
-        Date.now() - lastSpeakEndRef.current < SPEAK_COOLDOWN_MS
-      ) {
-        setInterim("");
-        return;
-      }
+      // Always-on mic: the recognizer keeps listening even while the AI talks,
+      // so the candidate can speak (and barge in) at any time. The old design
+      // hard-paused capture during AI speech; instead we now keep listening and,
+      // below, reject the AI's own TTS echoing back on speaker setups by matching
+      // it against what the AI is currently saying.
       // Rebuild this recognition session's final text from the WHOLE results
       // list every event (results[] is the authoritative cumulative record)
       // rather than appending the delta from e.resultIndex (Android keeps that
@@ -932,13 +963,33 @@ export default function InterviewRoom({
             : mergeTranscript(sessionFinal, piece);
         } else interimText += piece;
       }
+      const sessionTrim = sessionFinal.trim();
+      // While the AI is speaking, decide whether what we heard is the AI's own
+      // voice bleeding back in (speaker setups) or the candidate barging in.
+      // If most words match what the AI is saying, it's echo — drop it and don't
+      // touch the answer buffer. Otherwise the candidate is talking over the AI,
+      // so cut the AI's TTS immediately and capture their words.
+      if (aiSpeakingRef.current) {
+        const heard = sessionTrim || interimText.trim();
+        // Drop the AI's own echo, and ignore short blips (a cough, a stray
+        // filler) so they don't cut the AI off — only a few real, non-matching
+        // words count as the candidate barging in. results[] is cumulative, so
+        // once the threshold is crossed the whole phrase is still captured below.
+        if (
+          toWords(heard).length < 3 ||
+          isLikelyEcho(heard, aiUtteranceRef.current)
+        ) {
+          setInterim("");
+          return;
+        }
+        stopSpeakingRef.current();
+      }
       setInterim(interimText);
       // T-01: accumulate final speech into a buffer and DON'T submit yet — the
       // candidate is often mid-answer. Any incoming speech (final or interim)
       // resets a short silence timer; only when they pause for SILENCE_MS (or
       // press "Done") do we treat the answer as complete and coach on it. This
       // stops the Trainer/interviewer from interrupting halfway through.
-      const sessionTrim = sessionFinal.trim();
       // T-28: ignore finals while mic energy is below ambient floor (room noise).
       // Fail-open when VAD isn't reporting yet (mobile AudioContext often stays
       // suspended until a user gesture — RMS stays 0 and would block all speech).
@@ -1414,8 +1465,8 @@ export default function InterviewRoom({
               dot = "bg-red-500";
               label = "Mic off — tap Unmute to speak";
             } else if (aiSpeaking) {
-              dot = "bg-indigo-400";
-              label = "AI is speaking — your mic is paused";
+              dot = "bg-emerald-400";
+              label = "AI is speaking — talk any time to jump in";
               pulse = true;
             } else if (busy) {
               dot = "bg-amber-500";

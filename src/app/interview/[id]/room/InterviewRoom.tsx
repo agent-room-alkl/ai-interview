@@ -1,9 +1,10 @@
 "use client";
-// T-07 (voice: always-on mic STT + streaming TTS + mute).
+// Voice: always-on mic → getUserMedia (echo cancellation) → energy-VAD
+// segmenting → MediaRecorder → server STT (OpenAI), plus streaming TTS and mute.
+// This replaced the browser Web Speech API, whose mobile behaviour was
+// unreliable (no raw audio, no echo control, duplicated/echoed finals).
 // T-26: suggested industry / role questions as tappable chips.
-// T-31: turn-based capture (mic gated while AI speaks) to stop TTS self-echo /
-//       noise being logged as the candidate's answer on speaker devices; plus
-//       inline markdown rendering for chat bubbles.
+// Speaking over the AI stops its TTS (barge-in) and is captured as the answer.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { suggestedQuestionsForRole } from "@/lib/suggested-questions";
@@ -31,78 +32,17 @@ function renderRich(text: string) {
   );
 }
 
-// Map a stored BCP-47 primary subtag to a SpeechRecognition locale tag.
-const STT_LOCALE: Record<string, string> = {
-  en: "en-US",
-  zh: "zh-CN",
-  es: "es-ES",
-  fr: "fr-FR",
-  de: "de-DE",
-  ja: "ja-JP",
-  ko: "ko-KR",
-  pt: "pt-BR",
-  hi: "hi-IN",
-  it: "it-IT",
-  ru: "ru-RU",
-  ar: "ar-SA",
-};
-function sttLocale(code?: string): string {
-  const c = (code ?? "en").toLowerCase();
-  return STT_LOCALE[c] ?? STT_LOCALE[c.split("-")[0]] ?? code ?? "en-US";
-}
-
-// Mobile browsers (esp. Android Chrome) give SpeechRecognition exclusive use of
-// the microphone: a simultaneously-held getUserMedia track blocks recognition
-// from ever acquiring the mic. Detect mobile so we can release that stream and
-// let recognition own the input device.
-function isMobileUA(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-}
-
-// Fold a new transcript fragment onto the accumulated text without duplicating.
-// Android Chrome's continuous SpeechRecognition re-emits an ever-growing
-// restatement of the same utterance on each event (and keeps resultIndex at 0),
-// so blindly appending pieces produces runaway repetition like
-// "do you remember do you remember experience do you remember experience the…".
-// Here: an empty/duplicate piece is dropped, a piece that extends the accumulator
-// (the growing-restatement case) replaces it, one already contained is ignored,
-// and a genuinely new segment is appended with a space. Case-insensitive so a
-// capitalized restart still matches.
-function mergeTranscript(acc: string, piece: string): string {
-  const p = piece.trim();
-  if (!p) return acc;
-  if (!acc) return p;
-  const a = acc.toLowerCase();
-  const b = p.toLowerCase();
-  if (a === b) return acc;
-  if (b.startsWith(a)) return p; // growing restatement of the same utterance
-  if (a.endsWith(b)) return acc; // already folded in
-  if (b.endsWith(a)) return p; // rare: prefix re-recognized
-  return `${acc} ${p}`;
-}
-
-function toWords(s: string): string[] {
-  return s
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-// The mic stays always-on, so while the AI is talking a speaker (no headphones)
-// setup will transcribe the AI's own TTS. Treat a captured phrase as echo — not
-// the candidate — when most of its words appear in what the AI is currently
-// saying. Real barge-in (the candidate talking over the AI about something else)
-// shares few words and passes through. Headphone users never hit this at all.
-function isLikelyEcho(candidate: string, aiSpoken: string): boolean {
-  const words = toWords(candidate);
-  if (words.length === 0) return true;
-  if (!aiSpoken) return false;
-  const aiSet = new Set(toWords(aiSpoken));
-  if (aiSet.size === 0) return false;
-  const overlap = words.filter((w) => aiSet.has(w)).length / words.length;
-  return overlap >= 0.7;
+// Pick a MediaRecorder container the browser actually supports, preferring Opus.
+// OpenAI transcription accepts webm/ogg/mp4/wav, so any of these upload fine.
+function pickRecorderMime(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
+  return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
 }
 
 // T-13: the interviewer embeds [[ASK_WRITTEN:<id>]] to pose a written test.
@@ -149,7 +89,6 @@ export default function InterviewRoom({
   candidateName,
   candidateImageUrl,
   targetRole,
-  language,
   initialTurns,
 }: {
   interviewId: string;
@@ -157,6 +96,7 @@ export default function InterviewRoom({
   candidateName: string;
   candidateImageUrl?: string | null;
   targetRole: string;
+  // Interview language is applied server-side (STT/TTS) from the stored record.
   language?: string;
   initialTurns: Msg[];
 }) {
@@ -167,7 +107,10 @@ export default function InterviewRoom({
   // Surfaced when the mic can't be acquired (permission blocked, no device, or
   // in use elsewhere) so mobile users aren't left staring at a dead mic.
   const [micError, setMicError] = useState<string | null>(null);
-  const [interim, setInterim] = useState("");
+  // Voice-capture UI state: recording = the candidate is speaking (a segment is
+  // being recorded); transcribing = a finished segment is being sent to STT.
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [speakingAgent, setSpeakingAgent] = useState<
     "interviewer" | "trainer" | null
@@ -199,10 +142,6 @@ export default function InterviewRoom({
     useState<ExpressionLevel>("professional");
   const expressionLevelRef = useRef<ExpressionLevel>(expressionLevel);
 
-  const recogRef = useRef<SpeechRecognitionLike | null>(null);
-  // Set on a fatal recognition error (permission denied) so onend stops the
-  // auto-restart loop instead of hammering the mic. Cleared on a user gesture.
-  const recogFatalRef = useRef(false);
   const chatAbortRef = useRef<AbortController | null>(null);
   const leavingRef = useRef(false);
   const mutedRef = useRef(muted);
@@ -220,43 +159,38 @@ export default function InterviewRoom({
   const ttsPendingRef = useRef("");
   const ttsFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelSpeakRef = useRef(false);
-  // Timestamp (ms) of when the AI last stopped speaking — used to keep the mic
-  // gated for a short cooldown so trailing TTS echo isn't captured as an answer.
-  const lastSpeakEndRef = useRef(0);
-  // T-01: mic captured via getUserMedia with echo cancellation so hands-free
-  // devices don't re-transcribe the AI's own TTS as the candidate's answer.
+  // Mic captured via getUserMedia with echo cancellation so the browser removes
+  // the AI's own TTS from the input — the candidate's voice is recorded, the AI's
+  // is not (works on speaker setups; headphones make it perfect).
   const micStreamRef = useRef<MediaStream | null>(null);
-  // T-01: accumulate the candidate's final transcript and only submit after a
-  // brief silence (or an explicit "Done") — so coaching waits until they finish.
+  // Accumulate the candidate's transcribed segments and only submit after a
+  // brief idle (or the explicit "Done") — so coaching waits until they finish.
   const answerBufferRef = useRef("");
-  // Split the pending answer into text committed from PREVIOUS recognition
-  // sessions (before an onend/restart) and the CURRENT session's final text.
-  // The current session is rebuilt from results[0..] each event rather than
-  // appended, so Android's cumulative re-emits can't pile up (see mergeTranscript).
-  const committedRef = useRef("");
-  const sessionFinalRef = useRef("");
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasPendingAnswer, setHasPendingAnswer] = useState(false);
-  // The always-on recognition handler is installed once (mount-only effect) and
-  // would otherwise capture stale closures; these refs let it call the latest.
+  // Latest submit fn for the VAD loop / idle timer (avoids stale closures).
   const submitAnswerRef = useRef<() => void>(() => {});
+  const transcribeSegmentRef = useRef<(blob: Blob) => void>(() => {});
   const lastQuestionRef = useRef(lastQuestion);
-  // What the AI is currently saying (updated as its reply streams). Used to
-  // reject the AI's own voice echoing back into the always-on mic on speaker
-  // setups, and to tell real barge-in from echo.
-  const aiUtteranceRef = useRef("");
-  // Lets the mount-only recognizer stop the AI's TTS for barge-in without
-  // capturing a stale stopSpeaking closure.
+  // Lets the capture loop stop the AI's TTS for barge-in without capturing a
+  // stale stopSpeaking closure.
   const stopSpeakingRef = useRef<() => void>(() => {});
-  // T-28: silence window tuned to reduce room-noise false submits without
-  // swallowing short but real answers (pair with energy VAD + tip banner).
-  const SILENCE_MS = 1800;
+  // Silence that ends a spoken segment, and idle after a segment that submits.
+  const SILENCE_MS = 900; // in-segment pause that closes the recording
+  const SUBMIT_IDLE_MS = 1400; // quiet after a segment before the answer submits
   // RMS below this (0–1 float) is treated as ambient noise, not speech.
   const MIC_ENERGY_FLOOR = 0.012;
   const micRmsRef = useRef(0);
   const vadActiveRef = useRef(false);
   const vadCtxRef = useRef<AudioContext | null>(null);
   const vadRafRef = useRef<number | null>(null);
+  // ---- MediaRecorder segmenting (mainstream STT: capture → upload → OpenAI) ----
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<BlobPart[]>([]);
+  const recordingRef = useRef(false);
+  const lastVoiceAtRef = useRef(0); // perf timestamp of the last voiced frame
+  const segmentStartRef = useRef(0); // perf timestamp the current segment began
+  const discardSegmentRef = useRef(false); // drop the next onstop (mute/unmount)
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -408,13 +342,11 @@ export default function InterviewRoom({
     const ctx = audioCtxRef.current;
     if (ctx) nextStartRef.current = ctx.currentTime;
     drainingRef.current = false;
-    lastSpeakEndRef.current = Date.now();
-    aiUtteranceRef.current = "";
     setAiSpeaking(false);
     setSpeakingAgent(null);
   }, [clearTtsFlushTimer]);
 
-  // Keep a live handle to stopSpeaking for the mount-only recognizer (barge-in).
+  // Keep a live handle to stopSpeaking for the capture loop (barge-in).
   useEffect(() => {
     stopSpeakingRef.current = stopSpeaking;
   }, [stopSpeaking]);
@@ -452,7 +384,6 @@ export default function InterviewRoom({
         endTimerRef.current = setTimeout(() => {
           endTimerRef.current = null;
           if (!drainingRef.current && ttsQueueRef.current.length === 0) {
-            lastSpeakEndRef.current = Date.now();
             setAiSpeaking(false);
             setSpeakingAgent(null);
           }
@@ -512,20 +443,15 @@ export default function InterviewRoom({
     stopSpeaking();
     chatAbortRef.current?.abort();
     setBusy(false);
-    const recog = recogRef.current;
-    if (recog) {
-      recog.onend = null;
-      try {
-        recog.stop();
-      } catch {
-        /* not running */
-      }
-      try {
-        recog.abort();
-      } catch {
-        /* already stopped */
-      }
+    // Stop mic capture so no in-flight segment transcribes after we leave.
+    discardSegmentRef.current = true;
+    recordingRef.current = false;
+    try {
+      mediaRecorderRef.current?.stop();
+    } catch {
+      /* not running */
     }
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
     const reportUrl = `/interview/${interviewId}/report`;
     router.push(reportUrl);
     // Client navigation can stall while a chat stream is open — hard fallback.
@@ -601,9 +527,6 @@ export default function InterviewRoom({
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          // Track what the AI is saying so the always-on mic can reject its own
-          // TTS echoing back (speaker setups) instead of logging it as an answer.
-          aiUtteranceRef.current = stripMarkers(buffer);
           setMessages((m) => {
             const copy = [...m];
             copy[copy.length - 1] = { speaker: agent, text: stripMarkers(buffer) };
@@ -694,7 +617,6 @@ export default function InterviewRoom({
           { speaker: who, text: nudge },
         ]);
         cancelSpeakRef.current = false;
-        aiUtteranceRef.current = nudge;
         setSpeakingAgent(who);
         enqueueSpeech(nudge);
         finalizeSpeech();
@@ -730,24 +652,66 @@ export default function InterviewRoom({
     handleUserUtterance(next);
   }, [transcriptDraft, handleUserUtterance]);
 
-  // T-01: submit whatever the candidate has said so far (silence-triggered or
-  // via the explicit "Done" button). Coaching only fires here, never mid-answer.
+  // Submit whatever the candidate has said so far (idle-triggered or via the
+  // explicit "Done" button). Coaching only fires here, never mid-answer.
   const submitBufferedAnswer = useCallback(() => {
     clearSilenceTimer();
     const answer = answerBufferRef.current.trim();
     answerBufferRef.current = "";
-    committedRef.current = "";
-    sessionFinalRef.current = "";
     setHasPendingAnswer(false);
-    setInterim("");
     if (!answer || busyRef.current) return;
     handleUserUtterance(answer);
   }, [clearSilenceTimer, handleUserUtterance]);
 
-  // Keep the ref pointed at the latest submit fn for the mount-only recognizer.
+  // Upload one recorded speech segment to server STT, append the returned text to
+  // the pending answer, and (re)arm the idle timer that submits once the
+  // candidate stops. Segments accumulate so a multi-sentence answer with short
+  // pauses becomes one submission.
+  const transcribeSegment = useCallback(
+    async (blob: Blob) => {
+      if (leavingRef.current) return;
+      setTranscribing(true);
+      try {
+        const fd = new FormData();
+        fd.append("audio", blob, "segment");
+        const res = await fetch(`/api/interview/${interviewId}/transcribe`, {
+          method: "POST",
+          body: fd,
+        });
+        if (!res.ok) throw new Error("stt");
+        const { text } = (await res.json()) as { text?: string };
+        const clean = (text ?? "").trim();
+        if (!clean) return;
+        answerBufferRef.current = answerBufferRef.current
+          ? `${answerBufferRef.current} ${clean}`
+          : clean;
+        setHasPendingAnswer(true);
+        clearSilenceTimer();
+        if (!busyRef.current) {
+          silenceTimerRef.current = setTimeout(() => {
+            silenceTimerRef.current = null;
+            if (busyRef.current) return;
+            submitAnswerRef.current();
+          }, SUBMIT_IDLE_MS);
+        }
+      } catch {
+        setMicError(
+          "Couldn't transcribe that — check your connection, or type your answer below.",
+        );
+      } finally {
+        setTranscribing(false);
+      }
+    },
+    [interviewId, clearSilenceTimer, SUBMIT_IDLE_MS],
+  );
+
+  // Keep refs pointed at the latest fns for the mount-only capture loop.
   useEffect(() => {
     submitAnswerRef.current = submitBufferedAnswer;
   }, [submitBufferedAnswer]);
+  useEffect(() => {
+    transcribeSegmentRef.current = (blob: Blob) => void transcribeSegment(blob);
+  }, [transcribeSegment]);
 
   const suggestions = useMemo(
     () => suggestedQuestionsForRole(targetRole),
@@ -763,7 +727,6 @@ export default function InterviewRoom({
       );
       setBusy(true);
       cancelSpeakRef.current = false;
-      aiUtteranceRef.current = question;
       setSpeakingAgent("interviewer");
       setMessages((m) => [...m, { speaker: "interviewer", text: question }]);
       setLastQuestion(question);
@@ -806,19 +769,48 @@ export default function InterviewRoom({
     [handleUserUtterance],
   );
 
-  // ---------- Mic capture with echo cancellation (T-01) + energy VAD (T-28) ----------
-  // The browser SpeechRecognition API opens its own capture, but holding an
-  // getUserMedia stream with echoCancellation/noiseSuppression/autoGainControl
-  // makes the platform apply AEC to the shared input device, so on hands-free
-  // (speaker) setups the AI's own TTS is largely cancelled before it can be
-  // transcribed back as the candidate's answer. Also front-loads the mic prompt.
-  // T-28: AnalyserNode RMS gates low-energy ambient noise out of the buffer.
+  // ---------- Mic capture → energy VAD segmenting → server STT ----------
+  // Mainstream voice pipeline. Hold ONE getUserMedia stream with echo
+  // cancellation so the browser removes the AI's own TTS from the mic (the
+  // candidate is recorded, the AI is not). An energy VAD watches the input: when
+  // the candidate starts speaking we record a segment with MediaRecorder; when
+  // they pause we upload it to server STT (OpenAI). No browser SpeechRecognition,
+  // so behaviour is identical across devices — and speaking over the AI both
+  // stops its TTS (barge-in) and is captured as the answer.
   useEffect(() => {
     let cancelled = false;
     let localCtx: AudioContext | null = null;
-    const mobile = isMobileUA();
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
-    if (!md?.getUserMedia) return;
+    if (!md?.getUserMedia || typeof MediaRecorder === "undefined") return;
+
+    const startSegment = () => {
+      const rec = mediaRecorderRef.current;
+      if (!rec || recordingRef.current || mutedRef.current || leavingRef.current)
+        return;
+      if (aiSpeakingRef.current) stopSpeakingRef.current(); // barge-in
+      recordedChunksRef.current = [];
+      try {
+        rec.start();
+      } catch {
+        return;
+      }
+      recordingRef.current = true;
+      segmentStartRef.current = performance.now();
+      setRecording(true);
+    };
+    const stopSegment = (discard = false) => {
+      const rec = mediaRecorderRef.current;
+      if (!rec || !recordingRef.current) return;
+      recordingRef.current = false;
+      discardSegmentRef.current = discard;
+      setRecording(false);
+      try {
+        rec.stop();
+      } catch {
+        /* already stopped */
+      }
+    };
+
     md.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -831,16 +823,42 @@ export default function InterviewRoom({
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
-        // Mobile: SpeechRecognition needs exclusive mic access, so a persistent
-        // getUserMedia track blocks it from ever hearing the candidate. Use this
-        // call only to front-load the permission prompt, then release the stream
-        // immediately and let recognition own the mic. (Turn-based capture + the
-        // headphones tip cover echo; the energy VAD fails open when absent.)
-        if (mobile) {
-          stream.getTracks().forEach((t) => t.stop());
+        micStreamRef.current = stream;
+        setListening(true);
+        setMicError(null);
+
+        // MediaRecorder captures one spoken segment at a time.
+        try {
+          const mime = pickRecorderMime();
+          const rec = mime
+            ? new MediaRecorder(stream, { mimeType: mime })
+            : new MediaRecorder(stream);
+          mediaRecorderRef.current = rec;
+          rec.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size > 0) recordedChunksRef.current.push(ev.data);
+          };
+          rec.onstop = () => {
+            const durMs = performance.now() - segmentStartRef.current;
+            const parts = recordedChunksRef.current;
+            recordedChunksRef.current = [];
+            const discard = discardSegmentRef.current;
+            discardSegmentRef.current = false;
+            // Drop muted/torn-down stops and blips too short to be a real answer.
+            if (discard || cancelled || durMs < 500 || parts.length === 0) return;
+            const blob = new Blob(parts, {
+              type: rec.mimeType || mime || "audio/webm",
+            });
+            if (blob.size < 1200) return;
+            transcribeSegmentRef.current(blob);
+          };
+        } catch {
+          setMicError(
+            "This browser can't record audio — type your answers below.",
+          );
           return;
         }
-        micStreamRef.current = stream;
+
+        // Energy VAD loop drives the record/stop segment state machine.
         try {
           const AC =
             window.AudioContext ??
@@ -863,18 +881,26 @@ export default function InterviewRoom({
               const v = (data[i] - 128) / 128;
               sum += v * v;
             }
-            micRmsRef.current = Math.sqrt(sum / data.length);
+            const rms = Math.sqrt(sum / data.length);
+            micRmsRef.current = rms;
             vadActiveRef.current = true;
+            const now = performance.now();
+            if (rms >= MIC_ENERGY_FLOOR) lastVoiceAtRef.current = now;
+            if (!mutedRef.current && !leavingRef.current) {
+              if (!recordingRef.current) {
+                if (rms >= MIC_ENERGY_FLOOR) startSegment();
+              } else if (now - lastVoiceAtRef.current >= SILENCE_MS) {
+                stopSegment();
+              }
+            }
             vadRafRef.current = requestAnimationFrame(tick);
           };
           vadRafRef.current = requestAnimationFrame(tick);
         } catch {
-          /* Analyser unavailable — recognition still works without energy gate */
+          /* No analyser — the type-answer fallback still works. */
         }
       })
       .catch((err: unknown) => {
-        // Permission denied / no device. On mobile this is the likely reason
-        // the mic "doesn't work" — surface it instead of failing silently.
         const name = err instanceof Error ? err.name : "";
         if (name === "NotAllowedError" || name === "SecurityError") {
           setMicError(
@@ -884,13 +910,25 @@ export default function InterviewRoom({
           setMicError(
             "No microphone was found or it's in use by another app. Free it up, or type your answers below.",
           );
+        } else {
+          setMicError(
+            "Couldn't start the microphone — type your answers below.",
+          );
         }
-        /* SpeechRecognition still tries; the banner tells the user what to do. */
       });
+
     return () => {
       cancelled = true;
       if (vadRafRef.current != null) cancelAnimationFrame(vadRafRef.current);
       vadRafRef.current = null;
+      discardSegmentRef.current = true;
+      recordingRef.current = false;
+      try {
+        mediaRecorderRef.current?.stop();
+      } catch {
+        /* noop */
+      }
+      mediaRecorderRef.current = null;
       micStreamRef.current?.getTracks().forEach((t) => t.stop());
       micStreamRef.current = null;
       if (localCtx) void localCtx.close().catch(() => {});
@@ -900,207 +938,25 @@ export default function InterviewRoom({
     };
   }, []);
 
-  // ---------- Speech recognition (always-on mic) ----------
-  useEffect(() => {
-    const Ctor =
-      typeof window !== "undefined"
-        ? window.SpeechRecognition ?? window.webkitSpeechRecognition
-        : undefined;
-    if (!Ctor) return;
-    const recog = new Ctor();
-    const mobile = isMobileUA();
-    // T-05: recognize in the interview's language (detected from the résumé),
-    // not a hard-coded en-US. `language` is stable for the session.
-    recog.lang = sttLocale(language);
-    // Android Chrome's *continuous* recognition is the source of the runaway
-    // duplication: it never advances resultIndex and keeps re-emitting fluctuating
-    // re-recognitions of the same utterance ("…migration project" / "…projects" /
-    // "…migration") as fresh finals, which pile up. One-shot sessions (restarted
-    // in onend) give one clean utterance per session instead. Desktop Chrome has
-    // no such bug and benefits from a single always-on continuous session.
-    recog.continuous = !mobile;
-    recog.interimResults = true;
-    recogRef.current = recog;
-
-    recog.onresult = (e) => {
-      if (mutedRef.current) return;
-      // Always-on mic: the recognizer keeps listening even while the AI talks,
-      // so the candidate can speak (and barge in) at any time. The old design
-      // hard-paused capture during AI speech; instead we now keep listening and,
-      // below, reject the AI's own TTS echoing back on speaker setups by matching
-      // it against what the AI is currently saying.
-      // Rebuild this recognition session's final text from the WHOLE results
-      // list every event (results[] is the authoritative cumulative record)
-      // rather than appending the delta from e.resultIndex (Android keeps that
-      // at 0, so appending double-counts). How finals are folded depends on the
-      // platform: mobile is a one-shot session covering a SINGLE utterance that
-      // Android re-emits as fluctuating variants, so keep the single longest
-      // final; desktop's continuous session strings together distinct segments,
-      // so merge them in order.
-      let sessionFinal = "";
-      let interimText = "";
-      for (let i = 0; i < e.results.length; i++) {
-        const r = e.results[i];
-        const alt = r[0];
-        const piece = alt?.transcript ?? "";
-        // T-28: drop low-confidence finals when the engine reports confidence
-        // (Chrome often leaves it at 0 in continuous mode — only filter when >0).
-        const conf = alt?.confidence;
-        if (
-          r.isFinal &&
-          typeof conf === "number" &&
-          conf > 0 &&
-          conf < 0.4
-        ) {
-          continue;
-        }
-        if (r.isFinal) {
-          const p = piece.trim();
-          sessionFinal = mobile
-            ? p.length > sessionFinal.length
-              ? p
-              : sessionFinal
-            : mergeTranscript(sessionFinal, piece);
-        } else interimText += piece;
-      }
-      const sessionTrim = sessionFinal.trim();
-      // While the AI is speaking, decide whether what we heard is the AI's own
-      // voice bleeding back in (speaker setups) or the candidate barging in.
-      // If most words match what the AI is saying, it's echo — drop it and don't
-      // touch the answer buffer. Otherwise the candidate is talking over the AI,
-      // so cut the AI's TTS immediately and capture their words.
-      if (aiSpeakingRef.current) {
-        const heard = sessionTrim || interimText.trim();
-        // Drop the AI's own echo, and ignore short blips (a cough, a stray
-        // filler) so they don't cut the AI off — only a few real, non-matching
-        // words count as the candidate barging in. results[] is cumulative, so
-        // once the threshold is crossed the whole phrase is still captured below.
-        if (
-          toWords(heard).length < 3 ||
-          isLikelyEcho(heard, aiUtteranceRef.current)
-        ) {
-          setInterim("");
-          return;
-        }
-        stopSpeakingRef.current();
-      }
-      setInterim(interimText);
-      // T-01: accumulate final speech into a buffer and DON'T submit yet — the
-      // candidate is often mid-answer. Any incoming speech (final or interim)
-      // resets a short silence timer; only when they pause for SILENCE_MS (or
-      // press "Done") do we treat the answer as complete and coach on it. This
-      // stops the Trainer/interviewer from interrupting halfway through.
-      // T-28: ignore finals while mic energy is below ambient floor (room noise).
-      // Fail-open when VAD isn't reporting yet (mobile AudioContext often stays
-      // suspended until a user gesture — RMS stays 0 and would block all speech).
-      const energyOk =
-        !vadActiveRef.current || micRmsRef.current >= MIC_ENERGY_FLOOR;
-      if (sessionTrim && energyOk) {
-        sessionFinalRef.current = sessionTrim;
-        // Pending answer = committed prior sessions + the rebuilt current one.
-        answerBufferRef.current = mergeTranscript(
-          committedRef.current,
-          sessionTrim,
-        );
-        setHasPendingAnswer(Boolean(answerBufferRef.current));
-      }
-      // Reset the silence timer on any voice activity (spoken words in progress).
-      if (sessionTrim || interimText.trim()) {
-        clearSilenceTimer();
-        if (answerBufferRef.current.trim()) {
-          silenceTimerRef.current = setTimeout(() => {
-            silenceTimerRef.current = null;
-            // Re-check gates at fire time: never submit while the AI is talking.
-            if (aiSpeakingRef.current || busyRef.current) return;
-            submitAnswerRef.current();
-          }, SILENCE_MS);
-        }
-      }
-    };
-    recog.onend = () => {
-      setListening(false);
-      // Recognition restarts with a fresh results[] list, so fold this session's
-      // final text into the committed buffer before it resets — otherwise the
-      // next session's rebuild would drop everything said before the restart.
-      if (sessionFinalRef.current) {
-        committedRef.current = mergeTranscript(
-          committedRef.current,
-          sessionFinalRef.current,
-        );
-        sessionFinalRef.current = "";
-      }
-      // A fatal error (permission blocked) stops the restart loop — otherwise we
-      // hammer the mic and spin forever. A tap re-arms it (see gesture handler).
-      if (leavingRef.current || recogFatalRef.current) return;
-      // auto-restart unless muted (keeps the mic always-on)
-      if (!mutedRef.current) {
-        try {
-          recog.start();
-          setListening(true);
-        } catch {
-          /* already started */
-        }
-      }
-    };
-    recog.onstart = () => {
-      // Mic acquired successfully — clear any stale error banner.
-      recogFatalRef.current = false;
-      setMicError(null);
-    };
-    recog.onerror = (e) => {
-      const err = (e as unknown as { error?: string }).error ?? "";
-      if (err === "not-allowed" || err === "service-not-allowed") {
-        // Permission denied or blocked by policy — fatal until re-granted.
-        recogFatalRef.current = true;
-        setListening(false);
-        setMicError(
-          "Microphone access is blocked. Allow the mic for this site in your browser settings, then reload — or type your answers below.",
-        );
-      } else if (err === "audio-capture") {
-        setMicError(
-          "No microphone was found or it's in use by another app. Free it up, or type your answers below.",
-        );
-      }
-      /* no-speech / aborted / network are recoverable — onend restarts. */
-    };
-
-    try {
-      recog.start();
-      setListening(true);
-    } catch {
-      /* ignore */
-    }
-    return () => {
-      recog.onend = null;
-      recog.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Mute toggles capture without tearing down recognition.
+  // Mute discards any in-progress segment and pending answer; the VAD loop stops
+  // starting new segments while muted (mutedRef gate).
   const toggleMute = () => {
-    const recog = recogRef.current;
     setMuted((prev) => {
       const next = !prev;
       if (next) {
-        // Muting discards any half-captured answer so it can't submit later.
         clearSilenceTimer();
-        answerBufferRef.current = "";
-        committedRef.current = "";
-        sessionFinalRef.current = "";
-        setHasPendingAnswer(false);
-        setInterim("");
-      }
-      if (recog) {
-        if (next) recog.stop();
-        else {
+        if (recordingRef.current) {
+          recordingRef.current = false;
+          discardSegmentRef.current = true;
+          setRecording(false);
           try {
-            recog.start();
-            setListening(true);
+            mediaRecorderRef.current?.stop();
           } catch {
-            /* already running */
+            /* noop */
           }
         }
+        answerBufferRef.current = "";
+        setHasPendingAnswer(false);
       }
       return next;
     });
@@ -1113,26 +969,13 @@ export default function InterviewRoom({
   }, []);
 
   // Mobile browsers keep a new AudioContext suspended until a user gesture.
-  // Resume it on the first tap/keypress, and tear the context down on unmount.
+  // Resume both the TTS and VAD contexts on the first tap/keypress.
   useEffect(() => {
     const resume = () => {
       const ctx = audioCtxRef.current;
       if (ctx && ctx.state === "suspended") void ctx.resume().catch(() => {});
       const vad = vadCtxRef.current;
       if (vad && vad.state === "suspended") void vad.resume().catch(() => {});
-      // iOS Safari blocks SpeechRecognition until a user gesture — retry start.
-      // A tap is also the user's chance to recover after they've (re)granted the
-      // mic, so clear the fatal flag and attempt one fresh start.
-      const recog = recogRef.current;
-      if (recog && !mutedRef.current && !listening) {
-        recogFatalRef.current = false;
-        try {
-          recog.start();
-          setListening(true);
-        } catch {
-          /* already running */
-        }
-      }
     };
     window.addEventListener("pointerdown", resume);
     window.addEventListener("keydown", resume);
@@ -1151,8 +994,9 @@ export default function InterviewRoom({
   }, []);
 
   const supported =
-    typeof window !== "undefined" &&
-    !!(window.SpeechRecognition ?? window.webkitSpeechRecognition);
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    typeof MediaRecorder !== "undefined";
 
   return (
     <div className="safe-pt safe-px mx-auto flex h-dvh w-full max-w-6xl flex-col px-3 sm:px-6 lg:max-w-7xl lg:px-10">
@@ -1251,9 +1095,8 @@ export default function InterviewRoom({
 
       {!supported && (
         <div className="mt-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-          This browser doesn’t support speech recognition — use Chrome, or type
-          your answers below. (Headphones recommended so the mic doesn’t hear the
-          AI.)
+          This browser can’t record audio for voice answers — type your answers
+          below, or try a recent Chrome/Safari.
         </div>
       )}
 
@@ -1316,28 +1159,29 @@ export default function InterviewRoom({
             </div>
           );
         })}
-        {(hasPendingAnswer || interim) && (
+        {(hasPendingAnswer || recording || transcribing) && (
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-end gap-2.5 sm:gap-3">
               <div className="max-w-[min(92%,36rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 lg:max-w-[min(72%,48rem)]">
                 {answerBufferRef.current
-                  ? `${answerBufferRef.current}${interim ? " " + interim : ""}`
-                  : interim}
+                  ? `${answerBufferRef.current}${transcribing ? " …" : ""}`
+                  : recording
+                    ? "🎙 Listening…"
+                    : transcribing
+                      ? "Transcribing…"
+                      : "…"}
               </div>
               <div className="flex flex-col items-center gap-1">
                 <SpeakerAvatar
                   role="user"
                   name={candidateName}
                   imageUrl={candidateImageUrl}
-                  speaking={listening && !muted && !aiSpeaking}
+                  speaking={recording}
                 />
-                <SpeakingIndicator
-                  active={listening && !muted && !aiSpeaking && Boolean(interim || hasPendingAnswer)}
-                  tone="user"
-                />
+                <SpeakingIndicator active={recording} tone="user" />
               </div>
             </div>
-            {hasPendingAnswer && !busy && (
+            {hasPendingAnswer && !busy && !recording && (
               <button
                 type="button"
                 onClick={submitBufferedAnswer}
@@ -1472,9 +1316,13 @@ export default function InterviewRoom({
               dot = "bg-amber-500";
               label = "Thinking…";
               pulse = true;
-            } else if (interim) {
+            } else if (recording) {
               dot = "bg-emerald-500";
               label = "Listening…";
+              pulse = true;
+            } else if (transcribing) {
+              dot = "bg-amber-500";
+              label = "Transcribing…";
               pulse = true;
             } else if (hasPendingAnswer) {
               dot = "bg-emerald-500";

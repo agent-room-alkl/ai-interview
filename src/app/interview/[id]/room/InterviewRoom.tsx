@@ -11,6 +11,7 @@ import {
   SAMPLE_WRITTEN_QUESTIONS,
   type WrittenQuestion,
 } from "@/lib/written-questions";
+import type { ExpressionLevel } from "@/lib/interview-engine";
 import { QuestionCard } from "./QuestionCard";
 import { SpeakerAvatar } from "./SpeakerAvatar";
 import { SpeakingIndicator } from "./SpeakingIndicator";
@@ -101,6 +102,11 @@ export default function InterviewRoom({
   const [usedWrittenIds, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
+  // T-14: how elaborate the AI's language is (selectable + switchable). A ref
+  // mirrors it so the mount-only recognition path sends the current level too.
+  const [expressionLevel, setExpressionLevel] =
+    useState<ExpressionLevel>("professional");
+  const expressionLevelRef = useRef<ExpressionLevel>(expressionLevel);
 
   const recogRef = useRef<SpeechRecognitionLike | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -152,6 +158,9 @@ export default function InterviewRoom({
   useEffect(() => {
     lastQuestionRef.current = lastQuestion;
   }, [lastQuestion]);
+  useEffect(() => {
+    expressionLevelRef.current = expressionLevel;
+  }, [expressionLevel]);
 
   // ---------- TTS (streaming PCM → gapless Web Audio playback) ----------
   // Text is still batched into ~sentence chunks to keep request count low, but
@@ -435,7 +444,11 @@ export default function InterviewRoom({
         const res = await fetch(`/api/interview/${interviewId}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agent, ...opts }),
+          body: JSON.stringify({
+            agent,
+            expressionLevel: expressionLevelRef.current,
+            ...opts,
+          }),
           signal: ac.signal,
         });
         if (!res.ok || !res.body) throw new Error("chat");
@@ -833,6 +846,26 @@ export default function InterviewRoom({
           </button>
         </div>
       </header>
+
+      {/* T-14: expression level — how elaborate the AI talks (not role difficulty).
+          Selectable at the start and switchable mid-interview; next turn applies. */}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+        <label htmlFor="expr-level" className="font-medium">
+          表达层级
+        </label>
+        <select
+          id="expr-level"
+          value={expressionLevel}
+          onChange={(e) => setExpressionLevel(e.target.value as ExpressionLevel)}
+          className="min-h-9 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800"
+        >
+          <option value="clear">Clear · 通俗（大白话、短句）</option>
+          <option value="professional">Professional · 专业（职场标准）</option>
+          <option value="advanced">Advanced · 进阶（术语+深度）</option>
+          <option value="expert">Expert · 专家（高密度、严谨）</option>
+        </select>
+        <span className="hidden sm:inline">只改表达繁简，不改岗位难度</span>
+      </div>
 
       {!supported && (
         <div className="mt-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">

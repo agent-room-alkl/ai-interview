@@ -55,6 +55,12 @@ export async function POST(
     });
   }
 
+  // T-14: expression level chosen/switched by the candidate (per-request).
+  const VALID_LEVELS = ["clear", "professional", "advanced", "expert"] as const;
+  const expressionLevel = VALID_LEVELS.includes(body.expressionLevel)
+    ? (body.expressionLevel as (typeof VALID_LEVELS)[number])
+    : undefined;
+
   const ctx: EngineContext = {
     candidateName: interview.candidateName,
     targetRole: interview.targetRole,
@@ -65,6 +71,7 @@ export async function POST(
     resumeText: interview.resumeText ?? "",
     mode: interview.mode as Mode,
     language: interview.language,
+    expressionLevel,
   };
 
   // Persist an incoming user answer if present.

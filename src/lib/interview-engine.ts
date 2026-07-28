@@ -26,6 +26,24 @@ export type EngineMessage = {
   content: string;
 };
 
+// T-14: how elaborate the AI's language is — NOT how hard the role is.
+export type ExpressionLevel = "clear" | "professional" | "advanced" | "expert";
+
+const EXPRESSION_DIRECTIVES: Record<ExpressionLevel, string> = {
+  clear:
+    "EXPRESSION LEVEL — Clear: use plain, everyday words and short sentences. Avoid jargon; if a technical term is unavoidable, briefly explain it. Keep questions and feedback simple and encouraging.",
+  professional:
+    "EXPRESSION LEVEL — Professional: use normal workplace/industry language and medium-length sentences. Standard interview register; some domain terms are fine without explanation.",
+  advanced:
+    "EXPRESSION LEVEL — Advanced: use precise domain terminology and richer, more complex sentences. Expect the candidate to engage with nuance and trade-offs; probe for depth.",
+  expert:
+    "EXPRESSION LEVEL — Expert: use dense, high-register expert vocabulary and sophisticated phrasing. Assume deep familiarity; press for rigorous, detailed reasoning.",
+};
+
+function expressionDirective(level?: ExpressionLevel): string {
+  return EXPRESSION_DIRECTIVES[level ?? "professional"];
+}
+
 export interface EngineContext {
   candidateName: string;
   targetRole: string;
@@ -35,6 +53,8 @@ export interface EngineContext {
   mode: Mode;
   /** BCP-47 primary subtag the interview is conducted in (e.g. "en", "zh"). */
   language?: string;
+  /** T-14: how elaborate the AI's language should be (not role difficulty). */
+  expressionLevel?: ExpressionLevel;
 }
 
 /** Human-readable list of the target role(s), e.g. `"A", "B" and "C"`. */
@@ -95,6 +115,7 @@ export function interviewerSystemPrompt(c: EngineContext): string {
 ${modeNote}
 
 ${languageDirective(c)}
+${expressionDirective(c.expressionLevel)}
 
 Rules:
 - Ask ONE question at a time. Keep questions concise and spoken-friendly (they will be read aloud via TTS).
@@ -117,6 +138,7 @@ export function trainerSystemPrompt(c: EngineContext): string {
 You are given the interviewer's most recent QUESTION and the candidate's ANSWER.
 
 ${languageDirective(c)}
+${expressionDirective(c.expressionLevel)}
 
 Keep the FEEDBACK short and punchy — the candidate is practicing out loud and needs a signal, not an essay. Only the practice answer may be long and detailed.
 

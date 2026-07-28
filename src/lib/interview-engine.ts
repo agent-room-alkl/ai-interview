@@ -150,6 +150,8 @@ Return, in EXACTLY this markdown structure and nothing else:
 
 Then end with exactly: "Now try saying it again in your own words."
 
+The ANSWER usually comes from imperfect speech-to-text, so it may contain misheard words, homophones, garbled technical terms, missing punctuation, or run-on sentences. Grade the candidate's EVIDENT intent and substance — do NOT lower the score for transcription artifacts. If the intended answer is clearly strong despite messy transcription, score it as strong; only mark down for genuinely weak or missing content.
+
 Hard rules:
 - The FIRST line must be exactly "**Score:** NN/100" where NN is an integer 0–100.
 - Never output more than one bullet each for "What worked" and "To improve".

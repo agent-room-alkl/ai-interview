@@ -984,6 +984,12 @@ export default function InterviewRoom({
                 ? " — nice, you cleared the bar."
                 : ` — aim for ${PASS_THRESHOLD}+. Say the answer again to raise it.`}
             </div>
+            {lastScore < PASS_THRESHOLD ? (
+              <p className="max-w-[min(85%,26rem)] text-xs text-gray-400">
+                Graded from your answer as transcribed above. If it looks garbled,
+                speech-to-text misheard you — try speaking clearly or typing.
+              </p>
+            ) : null}
             {lastScore >= PASS_THRESHOLD && !busy ? (
               <button
                 type="button"

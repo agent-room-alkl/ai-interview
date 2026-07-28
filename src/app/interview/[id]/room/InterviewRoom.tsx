@@ -126,6 +126,10 @@ export default function InterviewRoom({
   const [usedWrittenIds, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
+  // T-23: logged-in sessions have a persistent ten-minute deadline. The
+  // deadline is stored per interview so a refresh/reconnect cannot reset it.
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const deadlineKey = `interview:${interviewId}:deadline`;
   // T-14: how elaborate the AI's language is (selectable + switchable). A ref
   // mirrors it so the mount-only recognition path sends the current level too.
   const [expressionLevel, setExpressionLevel] =
@@ -441,6 +445,27 @@ export default function InterviewRoom({
       }
     }, 1200);
   }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer]);
+
+  // T-23: initialize once from a persisted absolute deadline, then tick from
+  // Date.now() so tab throttling does not make the countdown drift.
+  useEffect(() => {
+    const now = Date.now();
+    const stored = window.localStorage.getItem(deadlineKey);
+    const parsed = stored ? Number(stored) : NaN;
+    const deadline = Number.isFinite(parsed) && parsed > now ? parsed : now + 10 * 60 * 1000;
+    window.localStorage.setItem(deadlineKey, String(deadline));
+    const update = () => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      if (remaining === 0) {
+        window.localStorage.removeItem(deadlineKey);
+        handleFinish();
+      }
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [deadlineKey, handleFinish]);
 
   // ---------- Chat (streaming text from an agent) ----------
   const runAgent = useCallback(
@@ -866,7 +891,20 @@ export default function InterviewRoom({
                   : "idle"}
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {timeLeft !== null && (
+            <div
+              aria-label={`Time remaining ${Math.floor(timeLeft / 60)} minutes ${timeLeft % 60} seconds`}
+              className={`rounded-xl border px-3 py-2 text-center text-xs font-semibold tabular-nums ${
+                timeLeft <= 60
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-gray-200 bg-gray-50 text-gray-700"
+              }`}
+            >
+              <span className="block text-[10px] uppercase tracking-wide opacity-70">Time left</span>
+              <span className="text-sm">{Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}</span>
+            </div>
+          )}
           <button
             type="button"
             onClick={toggleMute}

@@ -887,24 +887,30 @@ export default function InterviewRoom({
         </div>
       </header>
 
-      {/* T-14: expression level — how elaborate the AI talks (not role difficulty).
-          Selectable at the start and switchable mid-interview; next turn applies. */}
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-        <label htmlFor="expr-level" className="font-medium">
+      {/* T-14/T-19: expression level — how elaborate the AI talks (not role
+          difficulty). Kept OUTSIDE the scrolling transcript so it stays visible
+          at the top; selectable at the start and switchable mid-interview
+          (next turn applies). Styled as a distinct control bar so it reads as
+          an operable control rather than faint caption text. */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+        <label
+          htmlFor="expr-level"
+          className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+        >
           Expression level
         </label>
         <select
           id="expr-level"
           value={expressionLevel}
           onChange={(e) => setExpressionLevel(e.target.value as ExpressionLevel)}
-          className="min-h-9 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800"
+          className="min-h-9 flex-1 rounded-lg border border-gray-400 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 shadow-sm sm:flex-none"
         >
           <option value="clear">Clear · plain words, short sentences</option>
           <option value="professional">Professional · standard workplace tone</option>
           <option value="advanced">Advanced · domain terms &amp; depth</option>
           <option value="expert">Expert · dense &amp; rigorous</option>
         </select>
-        <span className="hidden sm:inline">
+        <span className="w-full text-xs text-gray-500 sm:w-auto">
           Changes how elaborate the AI talks — not the role difficulty
         </span>
       </div>

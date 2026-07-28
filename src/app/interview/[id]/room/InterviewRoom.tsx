@@ -165,10 +165,14 @@ export default function InterviewRoom({
   // would otherwise capture stale closures; these refs let it call the latest.
   const submitAnswerRef = useRef<() => void>(() => {});
   const lastQuestionRef = useRef(lastQuestion);
-  // How long the candidate must pause before we treat the answer as complete.
-  const SILENCE_MS = 1500;
-  // Cooldown after the AI stops speaking before the mic is trusted again.
-  const SPEAK_COOLDOWN_MS = 1200;
+  // T-28: silence / cooldown tuned to reduce room-noise false submits without
+  // swallowing short but real answers (pair with energy VAD + tip banner).
+  const SILENCE_MS = 1800;
+  const SPEAK_COOLDOWN_MS = 2000;
+  // RMS below this (0–1 float) is treated as ambient noise, not speech.
+  const MIC_ENERGY_FLOOR = 0.012;
+  const micRmsRef = useRef(0);
+  const vadRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -661,14 +665,16 @@ export default function InterviewRoom({
     [handleUserUtterance],
   );
 
-  // ---------- Mic capture with echo cancellation (T-01) ----------
+  // ---------- Mic capture with echo cancellation (T-01) + energy VAD (T-28) ----------
   // The browser SpeechRecognition API opens its own capture, but holding an
   // getUserMedia stream with echoCancellation/noiseSuppression/autoGainControl
   // makes the platform apply AEC to the shared input device, so on hands-free
   // (speaker) setups the AI's own TTS is largely cancelled before it can be
   // transcribed back as the candidate's answer. Also front-loads the mic prompt.
+  // T-28: AnalyserNode RMS gates low-energy ambient noise out of the buffer.
   useEffect(() => {
     let cancelled = false;
+    let localCtx: AudioContext | null = null;
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     if (!md?.getUserMedia) return;
     md.getUserMedia({
@@ -684,14 +690,45 @@ export default function InterviewRoom({
           return;
         }
         micStreamRef.current = stream;
+        try {
+          const AC =
+            window.AudioContext ??
+            (window as unknown as { webkitAudioContext?: typeof AudioContext })
+              .webkitAudioContext;
+          if (!AC) return;
+          localCtx = new AC();
+          const source = localCtx.createMediaStreamSource(stream);
+          const analyser = localCtx.createAnalyser();
+          analyser.fftSize = 512;
+          source.connect(analyser);
+          const data = new Uint8Array(analyser.fftSize);
+          const tick = () => {
+            if (cancelled) return;
+            analyser.getByteTimeDomainData(data);
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) {
+              const v = (data[i] - 128) / 128;
+              sum += v * v;
+            }
+            micRmsRef.current = Math.sqrt(sum / data.length);
+            vadRafRef.current = requestAnimationFrame(tick);
+          };
+          vadRafRef.current = requestAnimationFrame(tick);
+        } catch {
+          /* Analyser unavailable — recognition still works without energy gate */
+        }
       })
       .catch(() => {
         /* permission denied / no device — SpeechRecognition still tries */
       });
     return () => {
       cancelled = true;
+      if (vadRafRef.current != null) cancelAnimationFrame(vadRafRef.current);
+      vadRafRef.current = null;
       micStreamRef.current?.getTracks().forEach((t) => t.stop());
       micStreamRef.current = null;
+      if (localCtx) void localCtx.close().catch(() => {});
+      micRmsRef.current = 0;
     };
   }, []);
 
@@ -730,7 +767,19 @@ export default function InterviewRoom({
       let interimText = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
-        const piece = r[0]?.transcript ?? "";
+        const alt = r[0];
+        const piece = alt?.transcript ?? "";
+        // T-28: drop low-confidence finals when the engine reports confidence
+        // (Chrome often leaves it at 0 in continuous mode — only filter when >0).
+        const conf = alt?.confidence;
+        if (
+          r.isFinal &&
+          typeof conf === "number" &&
+          conf > 0 &&
+          conf < 0.4
+        ) {
+          continue;
+        }
         if (r.isFinal) finalText += piece;
         else interimText += piece;
       }
@@ -741,7 +790,9 @@ export default function InterviewRoom({
       // press "Done") do we treat the answer as complete and coach on it. This
       // stops the Trainer/interviewer from interrupting halfway through.
       const finalTrim = finalText.trim();
-      if (finalTrim) {
+      // T-28: ignore finals while mic energy is below ambient floor (room noise).
+      const energyOk = micRmsRef.current >= MIC_ENERGY_FLOOR;
+      if (finalTrim && energyOk) {
         answerBufferRef.current = answerBufferRef.current
           ? `${answerBufferRef.current} ${finalTrim}`
           : finalTrim;
@@ -914,6 +965,12 @@ export default function InterviewRoom({
           Changes how elaborate the AI talks — not the role difficulty
         </span>
       </div>
+
+      {/* T-28: quiet-room / headphones tip — ambient noise is the #1 false-capture source. */}
+      <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+        Find a quiet place to practice. Headphones recommended so the mic doesn&apos;t
+        pick up the AI or room noise.
+      </p>
 
       {!supported && (
         <div className="mt-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">

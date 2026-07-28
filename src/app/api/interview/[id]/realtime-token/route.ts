@@ -50,7 +50,9 @@ export async function POST(
           type: "server_vad",
           threshold: 0.5,
           prefix_padding_ms: 300,
-          silence_duration_ms: 600,
+          // Longer silence before a turn is closed, so a brief mid-answer pause
+          // doesn't chop the utterance (pairs with the generous SUBMIT_IDLE_MS).
+          silence_duration_ms: 800,
         },
       },
     },

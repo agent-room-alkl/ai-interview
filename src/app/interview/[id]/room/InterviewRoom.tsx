@@ -126,6 +126,11 @@ export default function InterviewRoom({
   const [usedWrittenIds, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
+  // T-34 / T-20: keep the graded transcript so the candidate can edit ASR text
+  // and re-score without re-speaking.
+  const [lastGradedTranscript, setLastGradedTranscript] = useState("");
+  const [editingTranscript, setEditingTranscript] = useState(false);
+  const [transcriptDraft, setTranscriptDraft] = useState("");
   // T-23: logged-in sessions have a persistent ten-minute deadline. The
   // deadline is stored per interview so a refresh/reconnect cannot reset it.
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -582,6 +587,9 @@ export default function InterviewRoom({
   const continueToNextQuestion = useCallback(() => {
     if (busyRef.current) return;
     setLastScore(null);
+    setLastGradedTranscript("");
+    setEditingTranscript(false);
+    setTranscriptDraft("");
     void runAgent("interviewer", {});
   }, [runAgent]);
 
@@ -590,6 +598,8 @@ export default function InterviewRoom({
       const t = text.trim();
       if (!t || busyRef.current) return;
       setLastScore(null); // T-12: reset the gate for this new attempt
+      setEditingTranscript(false);
+      setTranscriptDraft("");
       // T-18: empty / noise / filler-only capture — don't score it, just show
       // what was heard and ask the candidate to say it again.
       if (isTrivialAnswer(t)) {
@@ -607,6 +617,8 @@ export default function InterviewRoom({
         return;
       }
       if (mode === "practice") {
+        // T-34: remember what was graded so Edit transcript can fix ASR.
+        setLastGradedTranscript(t);
         // Trainer coaches the latest answer to the last interviewer question.
         // Read the question from a ref so the mount-time recognition handler
         // always coaches against the CURRENT question, not a stale one.
@@ -621,6 +633,18 @@ export default function InterviewRoom({
     },
     [mode, runAgent, enqueueSpeech, finalizeSpeech],
   );
+
+  const openEditTranscript = useCallback(() => {
+    setTranscriptDraft(lastGradedTranscript);
+    setEditingTranscript(true);
+  }, [lastGradedTranscript]);
+
+  const submitEditedTranscript = useCallback(() => {
+    const next = transcriptDraft.trim();
+    if (!next || busyRef.current) return;
+    setEditingTranscript(false);
+    handleUserUtterance(next);
+  }, [transcriptDraft, handleUserUtterance]);
 
   // T-01: submit whatever the candidate has said so far (silence-triggered or
   // via the explicit "Done" button). Coaching only fires here, never mid-answer.
@@ -1139,21 +1163,79 @@ export default function InterviewRoom({
                 ? " — nice, you cleared the bar."
                 : ` — aim for ${PASS_THRESHOLD}+. Say the answer again to raise it.`}
             </div>
+            {lastGradedTranscript ? (
+              <div className="max-w-[min(92%,36rem)] rounded-2xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 sm:max-w-[min(78%,42rem)] sm:px-5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                  Graded transcript
+                </p>
+                <p className="mt-1 whitespace-pre-wrap break-words leading-6">
+                  {lastGradedTranscript}
+                </p>
+              </div>
+            ) : null}
             {lastScore < PASS_THRESHOLD ? (
               <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
                 Graded from your answer as transcribed above. If it looks garbled,
-                speech-to-text misheard you — try speaking clearly or typing.
+                speech-to-text misheard you — edit the transcript or type below.
               </p>
             ) : null}
-            {lastScore >= PASS_THRESHOLD && !busy ? (
-              <button
-                type="button"
-                onClick={continueToNextQuestion}
-                className="min-h-10 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
-              >
-                Continue interview →
-              </button>
-            ) : null}
+            {editingTranscript ? (
+              <div className="flex w-full max-w-[min(92%,36rem)] flex-col gap-2 sm:max-w-[min(78%,42rem)]">
+                <label
+                  htmlFor="edit-transcript"
+                  className="text-xs font-semibold uppercase tracking-wide text-gray-600"
+                >
+                  Edit transcript
+                </label>
+                <textarea
+                  id="edit-transcript"
+                  value={transcriptDraft}
+                  onChange={(e) => setTranscriptDraft(e.target.value)}
+                  rows={4}
+                  disabled={busy}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm leading-6 text-gray-900 shadow-sm"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy || !transcriptDraft.trim()}
+                    onClick={submitEditedTranscript}
+                    className="min-h-10 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Re-score edited transcript
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setEditingTranscript(false)}
+                    className="min-h-10 rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {lastGradedTranscript && !busy ? (
+                  <button
+                    type="button"
+                    onClick={openEditTranscript}
+                    className="min-h-10 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900"
+                  >
+                    Edit transcript
+                  </button>
+                ) : null}
+                {lastScore >= PASS_THRESHOLD && !busy ? (
+                  <button
+                    type="button"
+                    onClick={continueToNextQuestion}
+                    className="min-h-10 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Continue interview →
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
         ) : null}
       </div>

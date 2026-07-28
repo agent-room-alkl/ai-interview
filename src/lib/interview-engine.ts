@@ -16,10 +16,22 @@ export type EngineMessage = {
 export interface EngineContext {
   candidateName: string;
   targetRole: string;
+  /** All roles the candidate is interviewing for; falls back to [targetRole]. */
+  targetRoles?: string[];
   resumeText: string;
   mode: Mode;
   /** BCP-47 primary subtag the interview is conducted in (e.g. "en", "zh"). */
   language?: string;
+}
+
+/** Human-readable list of the target role(s), e.g. `"A", "B" and "C"`. */
+export function rolesLabel(c: EngineContext): string {
+  const list = (c.targetRoles && c.targetRoles.length ? c.targetRoles : [c.targetRole])
+    .map((r) => r.trim())
+    .filter(Boolean);
+  if (list.length <= 1) return `"${list[0] ?? c.targetRole}"`;
+  const quoted = list.map((r) => `"${r}"`);
+  return `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
 }
 
 // Human-readable names for the languages we localize the interview into. Falls
@@ -55,7 +67,7 @@ export interface TranscriptTurn {
 }
 
 const sharedContext = (c: EngineContext) => `Candidate name: ${c.candidateName}
-Target role: ${c.targetRole}
+Target role(s): ${rolesLabel(c)}
 Résumé (verbatim, may be truncated):
 """
 ${c.resumeText.slice(0, 8000)}
@@ -66,14 +78,14 @@ export function interviewerSystemPrompt(c: EngineContext): string {
     c.mode === "practice"
       ? "This is a PRACTICE session. Ask one question, then WAIT. A separate Trainer will coach the candidate between questions — do not coach yourself."
       : "This is a REAL interview simulation. Conduct it professionally end-to-end.";
-  return `You are an experienced hiring interviewer for the role of "${c.targetRole}".
+  return `You are an experienced hiring interviewer for the role(s) of ${rolesLabel(c)}.
 ${modeNote}
 
 ${languageDirective(c)}
 
 Rules:
 - Ask ONE question at a time. Keep questions concise and spoken-friendly (they will be read aloud via TTS).
-- Tailor questions to the candidate's résumé and the target role; mix behavioral and role-specific technical questions.
+- Tailor questions to the candidate's résumé and the target role(s); mix behavioral and role-specific technical questions. If more than one role is listed, spread your questions across all of them rather than focusing on just one.
 - Ask natural follow-ups based on the candidate's previous answer before moving on.
 - Do not answer for the candidate and do not lecture. Stay in character as the interviewer.
 - After ~6–8 substantive exchanges, wrap up: thank the candidate and say the interview is complete.
@@ -82,7 +94,7 @@ ${sharedContext(c)}`;
 }
 
 export function trainerSystemPrompt(c: EngineContext): string {
-  return `You are an expert interview COACH ("Trainer") helping "${c.candidateName}" prepare for a "${c.targetRole}" interview.
+  return `You are an expert interview COACH ("Trainer") helping "${c.candidateName}" prepare for a ${rolesLabel(c)} interview.
 You are given the interviewer's most recent QUESTION and the candidate's ANSWER.
 
 ${languageDirective(c)}

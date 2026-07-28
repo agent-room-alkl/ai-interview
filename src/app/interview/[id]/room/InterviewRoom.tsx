@@ -16,6 +16,10 @@ import type { ExpressionLevel } from "@/lib/interview-engine";
 import { QuestionCard } from "./QuestionCard";
 import { SpeakerAvatar } from "./SpeakerAvatar";
 import { SpeakingIndicator } from "./SpeakingIndicator";
+import {
+  connectRealtimeSTT,
+  type RealtimeSTTController,
+} from "./realtime-stt";
 
 type Speaker = "interviewer" | "trainer" | "user";
 interface Msg {
@@ -32,18 +36,6 @@ function renderRich(text: string) {
   );
 }
 
-// Pick a MediaRecorder container the browser actually supports, preferring Opus.
-// OpenAI transcription accepts webm/ogg/mp4/wav, so any of these upload fine.
-function pickRecorderMime(): string {
-  if (typeof MediaRecorder === "undefined") return "";
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-  return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
-}
 
 // T-13: the interviewer embeds [[ASK_WRITTEN:<id>]] to pose a written test.
 const WRITTEN_MARKER = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/gi;
@@ -107,10 +99,11 @@ export default function InterviewRoom({
   // Surfaced when the mic can't be acquired (permission blocked, no device, or
   // in use elsewhere) so mobile users aren't left staring at a dead mic.
   const [micError, setMicError] = useState<string | null>(null);
-  // Voice-capture UI state: recording = the candidate is speaking (a segment is
-  // being recorded); transcribing = a finished segment is being sent to STT.
+  // Voice-capture UI state: connecting = opening the realtime link; recording =
+  // the candidate is speaking (server VAD); interim = live partial transcript.
+  const [connecting, setConnecting] = useState(true);
   const [recording, setRecording] = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
+  const [interim, setInterim] = useState("");
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [speakingAgent, setSpeakingAgent] = useState<
     "interviewer" | "trainer" | null
@@ -159,38 +152,21 @@ export default function InterviewRoom({
   const ttsPendingRef = useRef("");
   const ttsFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelSpeakRef = useRef(false);
-  // Mic captured via getUserMedia with echo cancellation so the browser removes
-  // the AI's own TTS from the input — the candidate's voice is recorded, the AI's
-  // is not (works on speaker setups; headphones make it perfect).
-  const micStreamRef = useRef<MediaStream | null>(null);
-  // Accumulate the candidate's transcribed segments and only submit after a
+  // Live realtime-STT connection (WebRTC → OpenAI). The mic is owned by it.
+  const realtimeRef = useRef<RealtimeSTTController | null>(null);
+  // Accumulate the candidate's completed utterances and only submit after a
   // brief idle (or the explicit "Done") — so coaching waits until they finish.
   const answerBufferRef = useRef("");
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasPendingAnswer, setHasPendingAnswer] = useState(false);
-  // Latest submit fn for the VAD loop / idle timer (avoids stale closures).
+  // Latest submit fn for the idle timer (avoids stale closures).
   const submitAnswerRef = useRef<() => void>(() => {});
-  const transcribeSegmentRef = useRef<(blob: Blob) => void>(() => {});
   const lastQuestionRef = useRef(lastQuestion);
-  // Lets the capture loop stop the AI's TTS for barge-in without capturing a
-  // stale stopSpeaking closure.
+  // Lets the realtime callbacks stop the AI's TTS for barge-in without capturing
+  // a stale stopSpeaking closure.
   const stopSpeakingRef = useRef<() => void>(() => {});
-  // Silence that ends a spoken segment, and idle after a segment that submits.
-  const SILENCE_MS = 900; // in-segment pause that closes the recording
-  const SUBMIT_IDLE_MS = 1400; // quiet after a segment before the answer submits
-  // RMS below this (0–1 float) is treated as ambient noise, not speech.
-  const MIC_ENERGY_FLOOR = 0.012;
-  const micRmsRef = useRef(0);
-  const vadActiveRef = useRef(false);
-  const vadCtxRef = useRef<AudioContext | null>(null);
-  const vadRafRef = useRef<number | null>(null);
-  // ---- MediaRecorder segmenting (mainstream STT: capture → upload → OpenAI) ----
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<BlobPart[]>([]);
-  const recordingRef = useRef(false);
-  const lastVoiceAtRef = useRef(0); // perf timestamp of the last voiced frame
-  const segmentStartRef = useRef(0); // perf timestamp the current segment began
-  const discardSegmentRef = useRef(false); // drop the next onstop (mute/unmount)
+  // Quiet after a completed utterance before the accumulated answer submits.
+  const SUBMIT_IDLE_MS = 1400;
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -443,15 +419,9 @@ export default function InterviewRoom({
     stopSpeaking();
     chatAbortRef.current?.abort();
     setBusy(false);
-    // Stop mic capture so no in-flight segment transcribes after we leave.
-    discardSegmentRef.current = true;
-    recordingRef.current = false;
-    try {
-      mediaRecorderRef.current?.stop();
-    } catch {
-      /* not running */
-    }
-    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    // Close the realtime mic link so nothing transcribes after we leave.
+    realtimeRef.current?.close();
+    realtimeRef.current = null;
     const reportUrl = `/interview/${interviewId}/report`;
     router.push(reportUrl);
     // Client navigation can stall while a chat stream is open — hard fallback.
@@ -667,51 +637,34 @@ export default function InterviewRoom({
   // the pending answer, and (re)arm the idle timer that submits once the
   // candidate stops. Segments accumulate so a multi-sentence answer with short
   // pauses becomes one submission.
-  const transcribeSegment = useCallback(
-    async (blob: Blob) => {
-      if (leavingRef.current) return;
-      setTranscribing(true);
-      try {
-        const fd = new FormData();
-        fd.append("audio", blob, "segment");
-        const res = await fetch(`/api/interview/${interviewId}/transcribe`, {
-          method: "POST",
-          body: fd,
-        });
-        if (!res.ok) throw new Error("stt");
-        const { text } = (await res.json()) as { text?: string };
-        const clean = (text ?? "").trim();
-        if (!clean) return;
-        answerBufferRef.current = answerBufferRef.current
-          ? `${answerBufferRef.current} ${clean}`
-          : clean;
-        setHasPendingAnswer(true);
-        clearSilenceTimer();
-        if (!busyRef.current) {
-          silenceTimerRef.current = setTimeout(() => {
-            silenceTimerRef.current = null;
-            if (busyRef.current) return;
-            submitAnswerRef.current();
-          }, SUBMIT_IDLE_MS);
-        }
-      } catch {
-        setMicError(
-          "Couldn't transcribe that — check your connection, or type your answer below.",
-        );
-      } finally {
-        setTranscribing(false);
+  // One completed utterance from realtime STT: append it to the pending answer
+  // and (re)arm the idle timer that submits once the candidate stops. Utterances
+  // accumulate so a multi-sentence answer with pauses becomes one submission.
+  const onFinalUtterance = useCallback(
+    (text: string) => {
+      const clean = text.trim();
+      if (!clean) return;
+      setInterim("");
+      answerBufferRef.current = answerBufferRef.current
+        ? `${answerBufferRef.current} ${clean}`
+        : clean;
+      setHasPendingAnswer(true);
+      clearSilenceTimer();
+      if (!busyRef.current) {
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+          if (busyRef.current) return;
+          submitAnswerRef.current();
+        }, SUBMIT_IDLE_MS);
       }
     },
-    [interviewId, clearSilenceTimer, SUBMIT_IDLE_MS],
+    [clearSilenceTimer, SUBMIT_IDLE_MS],
   );
 
-  // Keep refs pointed at the latest fns for the mount-only capture loop.
+  // Keep the submit ref pointed at the latest fn for the idle timer.
   useEffect(() => {
     submitAnswerRef.current = submitBufferedAnswer;
   }, [submitBufferedAnswer]);
-  useEffect(() => {
-    transcribeSegmentRef.current = (blob: Blob) => void transcribeSegment(blob);
-  }, [transcribeSegment]);
 
   const suggestions = useMemo(
     () => suggestedQuestionsForRole(targetRole),
@@ -769,138 +722,54 @@ export default function InterviewRoom({
     [handleUserUtterance],
   );
 
-  // ---------- Mic capture → energy VAD segmenting → server STT ----------
-  // Mainstream voice pipeline. Hold ONE getUserMedia stream with echo
-  // cancellation so the browser removes the AI's own TTS from the mic (the
-  // candidate is recorded, the AI is not). An energy VAD watches the input: when
-  // the candidate starts speaking we record a segment with MediaRecorder; when
-  // they pause we upload it to server STT (OpenAI). No browser SpeechRecognition,
-  // so behaviour is identical across devices — and speaking over the AI both
-  // stops its TTS (barge-in) and is captured as the answer.
+  // ---------- Live realtime STT (WebRTC → OpenAI Realtime API) ----------
+  // The browser mic (echo-cancelled, so the AI's TTS is removed) streams straight
+  // to OpenAI over WebRTC; interim + final transcripts and server-VAD turn events
+  // come back live. Word-by-word, device-independent, and speaking over the AI
+  // both stops its TTS (barge-in) and is captured. Audio never touches our server.
   useEffect(() => {
+    let controller: RealtimeSTTController | null = null;
     let cancelled = false;
-    let localCtx: AudioContext | null = null;
-    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
-    if (!md?.getUserMedia || typeof MediaRecorder === "undefined") return;
-
-    const startSegment = () => {
-      const rec = mediaRecorderRef.current;
-      if (!rec || recordingRef.current || mutedRef.current || leavingRef.current)
-        return;
-      if (aiSpeakingRef.current) stopSpeakingRef.current(); // barge-in
-      recordedChunksRef.current = [];
-      try {
-        rec.start();
-      } catch {
-        return;
-      }
-      recordingRef.current = true;
-      segmentStartRef.current = performance.now();
-      setRecording(true);
-    };
-    const stopSegment = (discard = false) => {
-      const rec = mediaRecorderRef.current;
-      if (!rec || !recordingRef.current) return;
-      recordingRef.current = false;
-      discardSegmentRef.current = discard;
-      setRecording(false);
-      try {
-        rec.stop();
-      } catch {
-        /* already stopped */
-      }
-    };
-
-    md.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    })
-      .then((stream) => {
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        micStreamRef.current = stream;
+    connectRealtimeSTT(interviewId, {
+      onOpen: () => {
+        if (cancelled) return;
+        setConnecting(false);
         setListening(true);
         setMicError(null);
-
-        // MediaRecorder captures one spoken segment at a time.
-        try {
-          const mime = pickRecorderMime();
-          const rec = mime
-            ? new MediaRecorder(stream, { mimeType: mime })
-            : new MediaRecorder(stream);
-          mediaRecorderRef.current = rec;
-          rec.ondataavailable = (ev) => {
-            if (ev.data && ev.data.size > 0) recordedChunksRef.current.push(ev.data);
-          };
-          rec.onstop = () => {
-            const durMs = performance.now() - segmentStartRef.current;
-            const parts = recordedChunksRef.current;
-            recordedChunksRef.current = [];
-            const discard = discardSegmentRef.current;
-            discardSegmentRef.current = false;
-            // Drop muted/torn-down stops and blips too short to be a real answer.
-            if (discard || cancelled || durMs < 500 || parts.length === 0) return;
-            const blob = new Blob(parts, {
-              type: rec.mimeType || mime || "audio/webm",
-            });
-            if (blob.size < 1200) return;
-            transcribeSegmentRef.current(blob);
-          };
-        } catch {
-          setMicError(
-            "This browser can't record audio — type your answers below.",
-          );
+      },
+      onSpeechStart: () => {
+        if (cancelled || mutedRef.current) return;
+        // Barge-in: the candidate started talking — cut the AI's TTS.
+        if (aiSpeakingRef.current) stopSpeakingRef.current();
+        clearSilenceTimer();
+        setRecording(true);
+      },
+      onInterim: (text) => {
+        if (cancelled || mutedRef.current) return;
+        setInterim(text);
+        setRecording(true);
+      },
+      onFinal: (text) => {
+        if (cancelled || mutedRef.current) return;
+        setRecording(false);
+        onFinalUtterance(text);
+      },
+      onError: () => {
+        /* transient realtime errors: keep the session; user can still type */
+      },
+    })
+      .then((c) => {
+        if (cancelled) {
+          c.close();
           return;
         }
-
-        // Energy VAD loop drives the record/stop segment state machine.
-        try {
-          const AC =
-            window.AudioContext ??
-            (window as unknown as { webkitAudioContext?: typeof AudioContext })
-              .webkitAudioContext;
-          if (!AC) return;
-          localCtx = new AC();
-          vadCtxRef.current = localCtx;
-          if (localCtx.state === "suspended") void localCtx.resume().catch(() => {});
-          const source = localCtx.createMediaStreamSource(stream);
-          const analyser = localCtx.createAnalyser();
-          analyser.fftSize = 512;
-          source.connect(analyser);
-          const data = new Uint8Array(analyser.fftSize);
-          const tick = () => {
-            if (cancelled) return;
-            analyser.getByteTimeDomainData(data);
-            let sum = 0;
-            for (let i = 0; i < data.length; i++) {
-              const v = (data[i] - 128) / 128;
-              sum += v * v;
-            }
-            const rms = Math.sqrt(sum / data.length);
-            micRmsRef.current = rms;
-            vadActiveRef.current = true;
-            const now = performance.now();
-            if (rms >= MIC_ENERGY_FLOOR) lastVoiceAtRef.current = now;
-            if (!mutedRef.current && !leavingRef.current) {
-              if (!recordingRef.current) {
-                if (rms >= MIC_ENERGY_FLOOR) startSegment();
-              } else if (now - lastVoiceAtRef.current >= SILENCE_MS) {
-                stopSegment();
-              }
-            }
-            vadRafRef.current = requestAnimationFrame(tick);
-          };
-          vadRafRef.current = requestAnimationFrame(tick);
-        } catch {
-          /* No analyser — the type-answer fallback still works. */
-        }
+        controller = c;
+        realtimeRef.current = c;
+        c.setMuted(mutedRef.current);
       })
       .catch((err: unknown) => {
+        if (cancelled) return;
+        setConnecting(false);
         const name = err instanceof Error ? err.name : "";
         if (name === "NotAllowedError" || name === "SecurityError") {
           setMicError(
@@ -912,49 +781,27 @@ export default function InterviewRoom({
           );
         } else {
           setMicError(
-            "Couldn't start the microphone — type your answers below.",
+            "Couldn't start live voice — check your connection, or type your answers below.",
           );
         }
       });
-
     return () => {
       cancelled = true;
-      if (vadRafRef.current != null) cancelAnimationFrame(vadRafRef.current);
-      vadRafRef.current = null;
-      discardSegmentRef.current = true;
-      recordingRef.current = false;
-      try {
-        mediaRecorderRef.current?.stop();
-      } catch {
-        /* noop */
-      }
-      mediaRecorderRef.current = null;
-      micStreamRef.current?.getTracks().forEach((t) => t.stop());
-      micStreamRef.current = null;
-      if (localCtx) void localCtx.close().catch(() => {});
-      vadCtxRef.current = null;
-      vadActiveRef.current = false;
-      micRmsRef.current = 0;
+      controller?.close();
+      realtimeRef.current = null;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interviewId]);
 
-  // Mute discards any in-progress segment and pending answer; the VAD loop stops
-  // starting new segments while muted (mutedRef gate).
+  // Mute stops sending mic audio upstream and discards the pending answer.
   const toggleMute = () => {
     setMuted((prev) => {
       const next = !prev;
+      realtimeRef.current?.setMuted(next);
       if (next) {
         clearSilenceTimer();
-        if (recordingRef.current) {
-          recordingRef.current = false;
-          discardSegmentRef.current = true;
-          setRecording(false);
-          try {
-            mediaRecorderRef.current?.stop();
-          } catch {
-            /* noop */
-          }
-        }
+        setRecording(false);
+        setInterim("");
         answerBufferRef.current = "";
         setHasPendingAnswer(false);
       }
@@ -969,13 +816,11 @@ export default function InterviewRoom({
   }, []);
 
   // Mobile browsers keep a new AudioContext suspended until a user gesture.
-  // Resume both the TTS and VAD contexts on the first tap/keypress.
+  // Resume the TTS playback context on the first tap/keypress.
   useEffect(() => {
     const resume = () => {
       const ctx = audioCtxRef.current;
       if (ctx && ctx.state === "suspended") void ctx.resume().catch(() => {});
-      const vad = vadCtxRef.current;
-      if (vad && vad.state === "suspended") void vad.resume().catch(() => {});
     };
     window.addEventListener("pointerdown", resume);
     window.addEventListener("keydown", resume);
@@ -996,7 +841,7 @@ export default function InterviewRoom({
   const supported =
     typeof navigator !== "undefined" &&
     !!navigator.mediaDevices?.getUserMedia &&
-    typeof MediaRecorder !== "undefined";
+    typeof RTCPeerConnection !== "undefined";
 
   return (
     <div className="safe-pt safe-px mx-auto flex h-dvh w-full max-w-6xl flex-col px-3 sm:px-6 lg:max-w-7xl lg:px-10">
@@ -1159,17 +1004,17 @@ export default function InterviewRoom({
             </div>
           );
         })}
-        {(hasPendingAnswer || recording || transcribing) && (
+        {(hasPendingAnswer || recording || interim) && (
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-end gap-2.5 sm:gap-3">
               <div className="max-w-[min(92%,36rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 lg:max-w-[min(72%,48rem)]">
-                {answerBufferRef.current
-                  ? `${answerBufferRef.current}${transcribing ? " …" : ""}`
+                {answerBufferRef.current || interim
+                  ? `${answerBufferRef.current}${
+                      interim ? (answerBufferRef.current ? " " : "") + interim : ""
+                    }`
                   : recording
                     ? "🎙 Listening…"
-                    : transcribing
-                      ? "Transcribing…"
-                      : "…"}
+                    : "…"}
               </div>
               <div className="flex flex-col items-center gap-1">
                 <SpeakerAvatar
@@ -1308,21 +1153,21 @@ export default function InterviewRoom({
             } else if (muted) {
               dot = "bg-red-500";
               label = "Mic off — tap Unmute to speak";
+            } else if (connecting) {
+              dot = "bg-amber-500";
+              label = "Connecting live voice…";
+              pulse = true;
             } else if (aiSpeaking) {
               dot = "bg-emerald-400";
               label = "AI is speaking — talk any time to jump in";
               pulse = true;
-            } else if (busy) {
-              dot = "bg-amber-500";
-              label = "Thinking…";
-              pulse = true;
-            } else if (recording) {
+            } else if (recording || interim) {
               dot = "bg-emerald-500";
               label = "Listening…";
               pulse = true;
-            } else if (transcribing) {
+            } else if (busy) {
               dot = "bg-amber-500";
-              label = "Transcribing…";
+              label = "Thinking…";
               pulse = true;
             } else if (hasPendingAnswer) {
               dot = "bg-emerald-500";

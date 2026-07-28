@@ -165,8 +165,10 @@ export default function InterviewRoom({
   // Lets the realtime callbacks stop the AI's TTS for barge-in without capturing
   // a stale stopSpeaking closure.
   const stopSpeakingRef = useRef<() => void>(() => {});
-  // Quiet after a completed utterance before the accumulated answer submits.
-  const SUBMIT_IDLE_MS = 1400;
+  // Quiet after a completed utterance before the accumulated answer auto-submits.
+  // Generous so a normal mid-answer thinking pause doesn't submit early — the
+  // "Done answering" button is there for anyone who wants to submit instantly.
+  const SUBMIT_IDLE_MS = 3500;
 
   useEffect(() => {
     mutedRef.current = muted;

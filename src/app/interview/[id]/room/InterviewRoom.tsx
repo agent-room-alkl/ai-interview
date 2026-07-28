@@ -12,6 +12,8 @@ import {
   type WrittenQuestion,
 } from "@/lib/written-questions";
 import { QuestionCard } from "./QuestionCard";
+import { SpeakerAvatar } from "./SpeakerAvatar";
+import { SpeakingIndicator } from "./SpeakingIndicator";
 
 type Speaker = "interviewer" | "trainer" | "user";
 interface Msg {
@@ -52,6 +54,7 @@ export default function InterviewRoom({
   interviewId,
   mode,
   candidateName,
+  candidateImageUrl,
   targetRole,
   language,
   initialTurns,
@@ -59,6 +62,7 @@ export default function InterviewRoom({
   interviewId: string;
   mode: "practice" | "interview";
   candidateName: string;
+  candidateImageUrl?: string | null;
   targetRole: string;
   language?: string;
   initialTurns: Msg[];
@@ -69,6 +73,9 @@ export default function InterviewRoom({
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState("");
   const [aiSpeaking, setAiSpeaking] = useState(false);
+  const [speakingAgent, setSpeakingAgent] = useState<
+    "interviewer" | "trainer" | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [lastQuestion, setLastQuestion] = useState<string>(
@@ -266,6 +273,7 @@ export default function InterviewRoom({
     drainingRef.current = false;
     lastSpeakEndRef.current = Date.now();
     setAiSpeaking(false);
+    setSpeakingAgent(null);
   }, [clearTtsFlushTimer]);
 
   // Pull chunks off the queue and stream them back-to-back on the timeline.
@@ -303,6 +311,7 @@ export default function InterviewRoom({
           if (!drainingRef.current && ttsQueueRef.current.length === 0) {
             lastSpeakEndRef.current = Date.now();
             setAiSpeaking(false);
+            setSpeakingAgent(null);
           }
         }, remainMs);
       }
@@ -396,6 +405,7 @@ export default function InterviewRoom({
       chatAbortRef.current = ac;
       setBusy(true);
       cancelSpeakRef.current = false;
+      setSpeakingAgent(agent);
       const idx = messages.length + (opts.userText ? 1 : 0);
       // optimistic: append user turn locally
       if (opts.userText) {
@@ -506,6 +516,7 @@ export default function InterviewRoom({
       );
       setBusy(true);
       cancelSpeakRef.current = false;
+      setSpeakingAgent("interviewer");
       setMessages((m) => [...m, { speaker: "interviewer", text: question }]);
       setLastQuestion(question);
       enqueueSpeech(question);
@@ -782,33 +793,75 @@ export default function InterviewRoom({
       )}
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-4">
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`flex ${m.speaker === "user" ? "justify-end" : "justify-start"}`}
-          >
+        {messages.map((m, i) => {
+          const isUser = m.speaker === "user";
+          const aiActive =
+            aiSpeaking &&
+            speakingAgent === m.speaker &&
+            (m.speaker === "interviewer" || m.speaker === "trainer");
+          const isLastOfSpeaker =
+            messages.findLastIndex((x) => x.speaker === m.speaker) === i;
+          const showWave = Boolean(aiActive && isLastOfSpeaker);
+          return (
             <div
-              className={`max-w-[min(85%,24rem)] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[80%] sm:px-4 ${
-                m.speaker === "user"
-                  ? "bg-indigo-600 text-white"
-                  : m.speaker === "trainer"
-                    ? "bg-amber-100 text-amber-900"
-                    : "bg-gray-100 text-gray-900"
-              }`}
+              key={i}
+              className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}
             >
-              <div className="mb-0.5 text-[10px] uppercase tracking-wide opacity-60">
-                {m.speaker}
+              {!isUser ? (
+                <div className="flex flex-col items-center gap-1">
+                  <SpeakerAvatar
+                    role={m.speaker}
+                    speaking={showWave}
+                  />
+                  <SpeakingIndicator active={showWave} tone="ai" />
+                </div>
+              ) : null}
+              <div
+                className={`max-w-[min(85%,24rem)] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[80%] sm:px-4 ${
+                  m.speaker === "user"
+                    ? "bg-indigo-600 text-white"
+                    : m.speaker === "trainer"
+                      ? "bg-amber-100 text-amber-900"
+                      : "bg-gray-100 text-gray-900"
+                }`}
+              >
+                <div className="mb-0.5 flex items-center gap-2 text-[10px] uppercase tracking-wide opacity-60">
+                  <span>{m.speaker}</span>
+                </div>
+                {m.text ? renderRich(m.text) : "…"}
               </div>
-              {m.text ? renderRich(m.text) : "…"}
+              {isUser ? (
+                <div className="flex flex-col items-center gap-1">
+                  <SpeakerAvatar
+                    role="user"
+                    name={candidateName}
+                    imageUrl={candidateImageUrl}
+                  />
+                </div>
+              ) : null}
             </div>
-          </div>
-        ))}
+          );
+        })}
         {(hasPendingAnswer || interim) && (
           <div className="flex flex-col items-end gap-2">
-            <div className="max-w-[min(85%,24rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[80%] sm:px-4">
-              {answerBufferRef.current
-                ? `${answerBufferRef.current}${interim ? " " + interim : ""}`
-                : interim}
+            <div className="flex items-end gap-2">
+              <div className="max-w-[min(85%,24rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[80%] sm:px-4">
+                {answerBufferRef.current
+                  ? `${answerBufferRef.current}${interim ? " " + interim : ""}`
+                  : interim}
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <SpeakerAvatar
+                  role="user"
+                  name={candidateName}
+                  imageUrl={candidateImageUrl}
+                  speaking={listening && !muted && !aiSpeaking}
+                />
+                <SpeakingIndicator
+                  active={listening && !muted && !aiSpeaking && Boolean(interim || hasPendingAnswer)}
+                  tone="user"
+                />
+              </div>
             </div>
             {hasPendingAnswer && !busy && (
               <button

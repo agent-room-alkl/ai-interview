@@ -6,6 +6,7 @@ export type AppSession = {
     id: string;
     email: string;
     name: string | null;
+    imageUrl: string | null;
   };
 };
 
@@ -65,5 +66,12 @@ export async function auth(): Promise<AppSession | null> {
     });
   }
 
-  return { user: { id: userId, email, name } };
+  return {
+    user: {
+      id: userId,
+      email,
+      name,
+      imageUrl: clerkUser?.imageUrl ?? null,
+    },
+  };
 }

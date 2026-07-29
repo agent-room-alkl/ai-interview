@@ -128,7 +128,8 @@ ${expressionDirective(c.expressionLevel)}
 
 Rules:
 - Ask ONE question at a time. Keep questions concise and spoken-friendly (they will be read aloud via TTS).
-- Tailor questions to the candidate's résumé and the target role(s); mix behavioral and role-specific technical questions. If more than one role is listed, spread your questions across all of them rather than focusing on just one.
+- GROUND every question in the candidate's ACTUAL résumé experience below. Reference their real projects, employers, technologies, roles, and achievements by name — e.g. "On the <project> you led at <company>, how did you handle …". Prefer specific, personalized questions drawn from their background over generic textbook questions. Only ask a generic question when the résumé genuinely offers nothing relevant.
+- Mix behavioral and role-specific technical questions. If more than one role is listed, spread your questions across all of them rather than focusing on just one.
 - Ask natural follow-ups based on the candidate's previous answer before moving on.
 - Do not answer for the candidate and do not lecture. Stay in character as the interviewer.
 - After ~6–8 substantive exchanges, wrap up: thank the candidate and say the interview is complete.
@@ -150,6 +151,8 @@ ${languageDirective(c)}
 ${expressionDirective(c.expressionLevel)}
 
 Keep the FEEDBACK short and punchy — the candidate is practicing out loud and needs a signal, not an essay. Only the practice answer may be long and detailed.
+
+Coach toward the candidate's INTENT, not just their literal words: work out what they were trying to say (through messy speech-to-text and filler) and help them say it better. If the answer misses the question, misunderstands it, or is off-point, say so plainly in "To improve", then in "Practice answer" TEACH them — using your own expert understanding of what this interview question is really asking — a correct, on-point answer they can model. Always keep your coaching wording plain, simple, and clear (short everyday sentences), even for advanced/expert expression levels; the candidate needs an easy-to-grasp signal, not dense prose.
 
 Return, in EXACTLY this markdown structure and nothing else:
 **Score:** NN/100 — calibrated rating for THIS answer (see rubric below). A passing answer is ${PASS_THRESHOLD}+.
@@ -181,25 +184,80 @@ Hard rules:
 ${sharedContext(c)}`;
 }
 
+/** How many recent question→answer rounds the interviewer sees verbatim.
+ * Everything older is compressed into a one-line-per-round recap to cut tokens. */
+const INTERVIEWER_RECENT_ROUNDS = 3;
+
+/** Pull "NN/100" out of a trainer score line, if present. */
+function scoreOf(text: string): number | null {
+  const m = text.match(/score[^0-9]{0,12}(\d{1,3})\s*\/\s*100/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+}
+
 /** Build the user/assistant message array for the Interviewer's next turn.
- * Pass interviewerSystemPrompt(c) separately as streamText's `system`. */
+ * Pass interviewerSystemPrompt(c) separately as streamText's `system`.
+ *
+ * Token budget: the interviewer only needs the last few exchanges verbatim to
+ * ask a coherent follow-up. Older rounds are folded into a compact recap (the
+ * question asked + the practice score, if any) so we don't resend the entire
+ * transcript — plus the résumé — on every turn.
+ */
 export function buildInterviewerMessages(
   c: EngineContext,
   transcript: TranscriptTurn[],
 ): EngineMessage[] {
-  const messages: EngineMessage[] = [];
-  for (const t of transcript) {
-    if (t.speaker === "interviewer")
-      messages.push({ role: "assistant", content: t.text });
-    else if (t.speaker === "user")
-      messages.push({ role: "user", content: t.text });
-    // trainer turns are intentionally omitted from the interviewer's context
-  }
   if (transcript.length === 0) {
+    return [
+      {
+        role: "user",
+        content: "Please greet me briefly and ask your first interview question.",
+      },
+    ];
+  }
+
+  // Reconstruct question→answer rounds (trainer turns only contribute a score).
+  type Round = { q: string; a: string; score: number | null };
+  const rounds: Round[] = [];
+  const last = () => rounds[rounds.length - 1];
+  for (const t of transcript) {
+    if (t.speaker === "interviewer") {
+      rounds.push({ q: t.text, a: "", score: null });
+    } else if (t.speaker === "user") {
+      if (!rounds.length || last().a) rounds.push({ q: "", a: t.text, score: null });
+      else last().a = t.text;
+    } else if (t.speaker === "trainer" && rounds.length) {
+      last().score = scoreOf(t.text);
+    }
+  }
+
+  const cut = Math.max(0, rounds.length - INTERVIEWER_RECENT_ROUNDS);
+  const older = rounds.slice(0, cut);
+  const recent = rounds.slice(cut);
+
+  const messages: EngineMessage[] = [];
+  if (older.length) {
+    const lines = older.map((r, i) => {
+      const q = r.q
+        ? r.q.replace(/\s+/g, " ").slice(0, 120)
+        : "(question)";
+      const tag =
+        r.score != null
+          ? ` [practice score ${r.score}/100]`
+          : r.a
+            ? " [answered]"
+            : "";
+      return `${i + 1}. ${q}${tag}`;
+    });
     messages.push({
       role: "user",
-      content: "Please greet me briefly and ask your first interview question.",
+      content: `CONTEXT — earlier in this interview (summary only; do NOT ask these again):\n${lines.join("\n")}`,
     });
+  }
+  for (const r of recent) {
+    if (r.q) messages.push({ role: "assistant", content: r.q });
+    if (r.a) messages.push({ role: "user", content: r.a });
   }
   return messages;
 }

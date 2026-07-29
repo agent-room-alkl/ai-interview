@@ -129,10 +129,21 @@ export default function InterviewRoom({
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [timeExpired, setTimeExpired] = useState(false);
   const deadlineKey = `interview:${interviewId}:deadline`;
+  const expressionKey = `interview:${interviewId}:expression`;
   // T-14: how elaborate the AI's language is (selectable + switchable). A ref
   // mirrors it so the mount-only recognition path sends the current level too.
-  const [expressionLevel, setExpressionLevel] =
-    useState<ExpressionLevel>("professional");
+  // Initialize from the choice made on the role-selection screen (localStorage),
+  // then it stays switchable here.
+  const [expressionLevel, setExpressionLevel] = useState<ExpressionLevel>(() => {
+    if (typeof window === "undefined") return "professional";
+    const stored = window.localStorage.getItem(expressionKey);
+    return stored === "clear" ||
+      stored === "professional" ||
+      stored === "advanced" ||
+      stored === "expert"
+      ? stored
+      : "professional";
+  });
   const expressionLevelRef = useRef<ExpressionLevel>(expressionLevel);
 
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -183,7 +194,11 @@ export default function InterviewRoom({
   }, [lastQuestion]);
   useEffect(() => {
     expressionLevelRef.current = expressionLevel;
-  }, [expressionLevel]);
+    // Persist so a switch here (or the role-page choice) survives a reload.
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(expressionKey, expressionLevel);
+    }
+  }, [expressionLevel, expressionKey]);
 
   // ---------- TTS (streaming PCM → gapless Web Audio playback) ----------
   // Text is still batched into ~sentence chunks to keep request count low, but
@@ -1061,20 +1076,9 @@ export default function InterviewRoom({
                 ? " — nice, you cleared the bar."
                 : ` — aim for ${PASS_THRESHOLD}+. Say the answer again to raise it.`}
             </div>
-            {lastGradedTranscript ? (
-              <div className="max-w-[min(92%,36rem)] rounded-2xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 sm:max-w-[min(78%,42rem)] sm:px-5">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                  Graded transcript
-                </p>
-                <p className="mt-1 whitespace-pre-wrap break-words leading-6">
-                  {lastGradedTranscript}
-                </p>
-              </div>
-            ) : null}
             {lastScore < PASS_THRESHOLD ? (
               <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
-                Graded from your answer as transcribed above. If it looks garbled,
-                speech-to-text misheard you — edit the transcript or type below.
+                If speech-to-text misheard you, edit the transcript or type below.
               </p>
             ) : null}
             {editingTranscript ? (

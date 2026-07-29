@@ -184,25 +184,80 @@ Hard rules:
 ${sharedContext(c)}`;
 }
 
+/** How many recent question→answer rounds the interviewer sees verbatim.
+ * Everything older is compressed into a one-line-per-round recap to cut tokens. */
+const INTERVIEWER_RECENT_ROUNDS = 3;
+
+/** Pull "NN/100" out of a trainer score line, if present. */
+function scoreOf(text: string): number | null {
+  const m = text.match(/score[^0-9]{0,12}(\d{1,3})\s*\/\s*100/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+}
+
 /** Build the user/assistant message array for the Interviewer's next turn.
- * Pass interviewerSystemPrompt(c) separately as streamText's `system`. */
+ * Pass interviewerSystemPrompt(c) separately as streamText's `system`.
+ *
+ * Token budget: the interviewer only needs the last few exchanges verbatim to
+ * ask a coherent follow-up. Older rounds are folded into a compact recap (the
+ * question asked + the practice score, if any) so we don't resend the entire
+ * transcript — plus the résumé — on every turn.
+ */
 export function buildInterviewerMessages(
   c: EngineContext,
   transcript: TranscriptTurn[],
 ): EngineMessage[] {
-  const messages: EngineMessage[] = [];
-  for (const t of transcript) {
-    if (t.speaker === "interviewer")
-      messages.push({ role: "assistant", content: t.text });
-    else if (t.speaker === "user")
-      messages.push({ role: "user", content: t.text });
-    // trainer turns are intentionally omitted from the interviewer's context
-  }
   if (transcript.length === 0) {
+    return [
+      {
+        role: "user",
+        content: "Please greet me briefly and ask your first interview question.",
+      },
+    ];
+  }
+
+  // Reconstruct question→answer rounds (trainer turns only contribute a score).
+  type Round = { q: string; a: string; score: number | null };
+  const rounds: Round[] = [];
+  const last = () => rounds[rounds.length - 1];
+  for (const t of transcript) {
+    if (t.speaker === "interviewer") {
+      rounds.push({ q: t.text, a: "", score: null });
+    } else if (t.speaker === "user") {
+      if (!rounds.length || last().a) rounds.push({ q: "", a: t.text, score: null });
+      else last().a = t.text;
+    } else if (t.speaker === "trainer" && rounds.length) {
+      last().score = scoreOf(t.text);
+    }
+  }
+
+  const cut = Math.max(0, rounds.length - INTERVIEWER_RECENT_ROUNDS);
+  const older = rounds.slice(0, cut);
+  const recent = rounds.slice(cut);
+
+  const messages: EngineMessage[] = [];
+  if (older.length) {
+    const lines = older.map((r, i) => {
+      const q = r.q
+        ? r.q.replace(/\s+/g, " ").slice(0, 120)
+        : "(question)";
+      const tag =
+        r.score != null
+          ? ` [practice score ${r.score}/100]`
+          : r.a
+            ? " [answered]"
+            : "";
+      return `${i + 1}. ${q}${tag}`;
+    });
     messages.push({
       role: "user",
-      content: "Please greet me briefly and ask your first interview question.",
+      content: `CONTEXT — earlier in this interview (summary only; do NOT ask these again):\n${lines.join("\n")}`,
     });
+  }
+  for (const r of recent) {
+    if (r.q) messages.push({ role: "assistant", content: r.q });
+    if (r.a) messages.push({ role: "user", content: r.a });
   }
   return messages;
 }

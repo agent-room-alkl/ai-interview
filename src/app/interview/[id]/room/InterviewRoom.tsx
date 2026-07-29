@@ -165,10 +165,6 @@ export default function InterviewRoom({
   // Lets the realtime callbacks stop the AI's TTS for barge-in without capturing
   // a stale stopSpeaking closure.
   const stopSpeakingRef = useRef<() => void>(() => {});
-  // Quiet after a completed utterance before the accumulated answer auto-submits.
-  // Generous so a normal mid-answer thinking pause doesn't submit early — the
-  // "Done answering" button is there for anyone who wants to submit instantly.
-  const SUBMIT_IDLE_MS = 3500;
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -635,35 +631,22 @@ export default function InterviewRoom({
     handleUserUtterance(answer);
   }, [clearSilenceTimer, handleUserUtterance]);
 
-  // Upload one recorded speech segment to server STT, append the returned text to
-  // the pending answer, and (re)arm the idle timer that submits once the
-  // candidate stops. Segments accumulate so a multi-sentence answer with short
-  // pauses becomes one submission.
-  // One completed utterance from realtime STT: append it to the pending answer
-  // and (re)arm the idle timer that submits once the candidate stops. Utterances
-  // accumulate so a multi-sentence answer with pauses becomes one submission.
-  const onFinalUtterance = useCallback(
-    (text: string) => {
-      const clean = text.trim();
-      if (!clean) return;
-      setInterim("");
-      answerBufferRef.current = answerBufferRef.current
-        ? `${answerBufferRef.current} ${clean}`
-        : clean;
-      setHasPendingAnswer(true);
-      clearSilenceTimer();
-      if (!busyRef.current) {
-        silenceTimerRef.current = setTimeout(() => {
-          silenceTimerRef.current = null;
-          if (busyRef.current) return;
-          submitAnswerRef.current();
-        }, SUBMIT_IDLE_MS);
-      }
-    },
-    [clearSilenceTimer, SUBMIT_IDLE_MS],
-  );
+  // One completed utterance from realtime STT: append it to the pending answer.
+  // Utterances accumulate across the candidate's pauses so a whole multi-sentence
+  // answer builds up as one. We deliberately do NOT auto-submit on silence —
+  // interview answers have long thinking pauses, and any silence timer cut people
+  // off mid-answer. The candidate submits explicitly with "Done answering".
+  const onFinalUtterance = useCallback((text: string) => {
+    const clean = text.trim();
+    if (!clean) return;
+    setInterim("");
+    answerBufferRef.current = answerBufferRef.current
+      ? `${answerBufferRef.current} ${clean}`
+      : clean;
+    setHasPendingAnswer(true);
+  }, []);
 
-  // Keep the submit ref pointed at the latest fn for the idle timer.
+  // Keep the submit ref pointed at the latest fn (used by Done / typed submit).
   useEffect(() => {
     submitAnswerRef.current = submitBufferedAnswer;
   }, [submitBufferedAnswer]);
@@ -1028,13 +1011,13 @@ export default function InterviewRoom({
                 <SpeakingIndicator active={recording} tone="user" />
               </div>
             </div>
-            {hasPendingAnswer && !busy && !recording && (
+            {hasPendingAnswer && !busy && (
               <button
                 type="button"
                 onClick={submitBufferedAnswer}
-                className="min-h-9 rounded-full bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white"
+                className="min-h-10 rounded-full bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-sm"
               >
-                Done answering ↵
+                Done answering — submit ↵
               </button>
             )}
           </div>
@@ -1165,7 +1148,7 @@ export default function InterviewRoom({
               pulse = true;
             } else if (recording || interim) {
               dot = "bg-emerald-500";
-              label = "Listening…";
+              label = "Listening… take your time — tap Done when finished";
               pulse = true;
             } else if (busy) {
               dot = "bg-amber-500";
@@ -1173,7 +1156,7 @@ export default function InterviewRoom({
               pulse = true;
             } else if (hasPendingAnswer) {
               dot = "bg-emerald-500";
-              label = "Got your answer — pause to submit, or press Done";
+              label = "Keep talking, or tap Done to submit your answer";
             } else if (listening) {
               // Mic is live and waiting for the candidate to start — blink so
               // it's obvious the app is recording them right now.

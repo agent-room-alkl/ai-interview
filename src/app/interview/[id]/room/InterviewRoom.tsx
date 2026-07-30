@@ -128,7 +128,6 @@ export default function InterviewRoom({
   // refreshing, clearing browser storage, or opening another tab.
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [timeExpired, setTimeExpired] = useState(false);
-  const deadlineKey = `interview:${interviewId}:deadline`;
   const expressionKey = `interview:${interviewId}:expression`;
   // T-14: how elaborate the AI's language is (selectable + switchable). A ref
   // mirrors it so the mount-only recognition path sends the current level too.
@@ -1335,13 +1334,9 @@ export default function InterviewRoom({
             ) : null}
             <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
               Graded from your answer as transcribed above. You decide whether to
-              retry, see a model answer, skip, or continue.
+              retry, see a model answer, skip, or continue. If speech-to-text
+              misheard you, edit the transcript or type below.
             </p>
-            {lastScore < PASS_THRESHOLD ? (
-              <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
-                If speech-to-text misheard you, edit the transcript or type below.
-              </p>
-            ) : null}
             {editingTranscript ? (
               <div className="flex w-full max-w-[min(92%,36rem)] flex-col gap-2 sm:max-w-[min(78%,42rem)]">
                 <label

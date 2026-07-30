@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { scoreInterview, type InterviewReport } from "@/lib/report";
+import { getOrCreateInterviewReport } from "@/lib/report-cache";
 import { renderReportHtml } from "@/lib/report-html";
 
 export const runtime = "nodejs";
@@ -22,23 +22,7 @@ export async function GET(
   if (!interview || interview.userId !== session.user.id)
     return new Response("not_found", { status: 404 });
 
-  let report: InterviewReport;
-  const cached = interview.turns.find((t) => t.speaker === "report");
-  if (cached) {
-    report = JSON.parse(cached.text) as InterviewReport;
-  } else {
-    report = await scoreInterview(
-      interview.turns.map((t) => ({ speaker: t.speaker, text: t.text })),
-      {
-        candidateName: interview.candidateName,
-        targetRole: interview.targetRole ?? "the role",
-        mode: interview.mode as "practice" | "interview",
-      },
-    );
-    await prisma.turn.create({
-      data: { interviewId: id, speaker: "report", text: JSON.stringify(report) },
-    });
-  }
+  const report = await getOrCreateInterviewReport(interview);
 
   const html = renderReportHtml(report, {
     candidateName: interview.candidateName,

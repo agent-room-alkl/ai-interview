@@ -41,8 +41,6 @@ function renderRich(text: string) {
 const WRITTEN_MARKER = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/gi;
 const stripMarkers = (s: string) =>
   s.replace(WRITTEN_MARKER, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-// T-12: a practice answer must reach this score (0–100) to move on.
-const PASS_THRESHOLD = 80;
 // Parse "**Score:** NN/100" out of a trainer message.
 function parseScore(text: string): number | null {
   const m = text.match(/score[^0-9]{0,12}(\d{1,3})\s*\/\s*100/i);
@@ -81,6 +79,7 @@ export default function InterviewRoom({
   candidateName,
   candidateImageUrl,
   targetRole,
+  deadlineAt,
   initialTurns,
 }: {
   interviewId: string;
@@ -88,6 +87,7 @@ export default function InterviewRoom({
   candidateName: string;
   candidateImageUrl?: string | null;
   targetRole: string;
+  deadlineAt: string | null;
   // Interview language is applied server-side (STT/TTS) from the stored record.
   language?: string;
   initialTurns: Msg[];
@@ -116,7 +116,7 @@ export default function InterviewRoom({
   const [activeWritten, setActiveWritten] = useState<WrittenQuestion | null>(
     null,
   );
-  const [usedWrittenIds, setUsedWrittenIds] = useState<string[]>([]);
+  const [, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
   // T-34 / T-20: keep the graded transcript so the candidate can edit ASR text
@@ -124,11 +124,10 @@ export default function InterviewRoom({
   const [lastGradedTranscript, setLastGradedTranscript] = useState("");
   const [editingTranscript, setEditingTranscript] = useState(false);
   const [transcriptDraft, setTranscriptDraft] = useState("");
-  // T-23: logged-in sessions have a persistent ten-minute deadline. The
-  // deadline is stored per interview so a refresh/reconnect cannot reset it.
+  // T-23: deadline is authoritative server state and cannot be reset by
+  // refreshing, clearing browser storage, or opening another tab.
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [timeExpired, setTimeExpired] = useState(false);
-  const deadlineKey = `interview:${interviewId}:deadline`;
   // T-14: how elaborate the AI's language is (selectable + switchable). A ref
   // mirrors it so the mount-only recognition path sends the current level too.
   const [expressionLevel, setExpressionLevel] =
@@ -168,6 +167,24 @@ export default function InterviewRoom({
   // No new speech for this long after a completed utterance auto-submits the
   // answer. Any speech resets it, so mid-answer thinking pauses never cut off.
   const SUBMIT_IDLE_MS = 4000;
+  // T-01: two distinct silences. (1) A mid-answer pause (buffer non-empty) is
+  // handled by SUBMIT_IDLE_MS above. (2) "Hasn't started answering yet" (buffer
+  // empty, mic idle) never auto-advances — instead we gently remind the
+  // candidate after IDLE_REMINDER_MS, and again once more, then offer explicit
+  // Repeat / Hint / Skip controls. At most MAX_IDLE_REMINDERS spoken nudges.
+  const IDLE_REMINDER_MS = 120000; // 2 minutes of true silence
+  const MAX_IDLE_REMINDERS = 2;
+  const idleReminderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleReminderCountRef = useRef(0);
+  // After the second nudge, surface Repeat / Hint / Skip so a stuck candidate
+  // has a way forward without us ever answering or advancing for them.
+  const [showIdleOptions, setShowIdleOptions] = useState(false);
+  // T-03: the meeting-room layout leads with speaker tiles + a live caption;
+  // the full turn-by-turn transcript is tucked into a collapsible panel.
+  const [showTranscript, setShowTranscript] = useState(false);
+  // Ref indirection so the mount-only realtime STT callbacks reset reminders
+  // without capturing a stale closure.
+  const resetIdleRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -412,11 +429,32 @@ export default function InterviewRoom({
     }
   }, []);
 
+  // T-01: stop the pending "still waiting for you to start" nudge.
+  const clearIdleReminder = useCallback(() => {
+    if (idleReminderTimerRef.current) {
+      clearTimeout(idleReminderTimerRef.current);
+      idleReminderTimerRef.current = null;
+    }
+  }, []);
+
+  // T-01: a fresh answering opportunity begins — the candidate spoke, submitted,
+  // or a new question was posed. Reset the nudge cycle and hide the options.
+  const resetIdleReminders = useCallback(() => {
+    idleReminderCountRef.current = 0;
+    setShowIdleOptions(false);
+    clearIdleReminder();
+  }, [clearIdleReminder]);
+
+  useEffect(() => {
+    resetIdleRef.current = resetIdleReminders;
+  }, [resetIdleReminders]);
+
   const handleFinish = useCallback(() => {
     if (finishing || leavingRef.current) return;
     leavingRef.current = true;
     setFinishing(true);
     clearSilenceTimer();
+    clearIdleReminder();
     stopSpeaking();
     chatAbortRef.current?.abort();
     setBusy(false);
@@ -431,23 +469,22 @@ export default function InterviewRoom({
         window.location.assign(reportUrl);
       }
     }, 1200);
-  }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer]);
+  }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
 
-  // T-23: initialize once from a persisted absolute deadline, then tick from
-  // Date.now() so tab throttling does not make the countdown drift.
+  // Tick against the server-issued absolute deadline so tab throttling does not
+  // make the countdown drift.
   useEffect(() => {
-    const now = Date.now();
-    const stored = window.localStorage.getItem(deadlineKey);
-    const parsed = stored ? Number(stored) : NaN;
-    const deadline = Number.isFinite(parsed) && parsed > now ? parsed : now + 10 * 60 * 1000;
-    window.localStorage.setItem(deadlineKey, String(deadline));
+    if (!deadlineAt) {
+      setTimeLeft(null);
+      return;
+    }
+    const deadline = Date.parse(deadlineAt);
     let finished = false;
     const update = () => {
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       setTimeLeft(remaining);
-      if (remaining === 0 && !finished) {
+      if (remaining === 0 && mode === "interview" && !finished) {
         finished = true;
-        window.localStorage.removeItem(deadlineKey);
         setTimeExpired(true);
         window.clearInterval(timer);
         window.setTimeout(handleFinish, 1000);
@@ -456,13 +493,19 @@ export default function InterviewRoom({
     update();
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
-  }, [deadlineKey, handleFinish]);
+  }, [deadlineAt, handleFinish, mode]);
 
   // ---------- Chat (streaming text from an agent) ----------
   const runAgent = useCallback(
     async (
       agent: "interviewer" | "trainer",
-      opts: { userText?: string; question?: string; answer?: string },
+      opts: {
+        userText?: string;
+        question?: string;
+        answer?: string;
+        replaceLastUserTurn?: boolean;
+        coachingStyle?: "compact" | "model";
+      },
     ) => {
       if (leavingRef.current) return;
       chatAbortRef.current?.abort();
@@ -474,7 +517,15 @@ export default function InterviewRoom({
       const idx = messages.length + (opts.userText ? 1 : 0);
       // optimistic: append user turn locally
       if (opts.userText) {
-        setMessages((m) => [...m, { speaker: "user", text: opts.userText! }]);
+        setMessages((m) => {
+          if (opts.replaceLastUserTurn) {
+            const copy = [...m];
+            const index = copy.findLastIndex((message) => message.speaker === "user");
+            if (index >= 0) copy[index] = { speaker: "user", text: opts.userText! };
+            return copy;
+          }
+          return [...m, { speaker: "user", text: opts.userText! }];
+        });
       }
       setMessages((m) => [...m, { speaker: agent, text: "" }]);
 
@@ -536,8 +587,15 @@ export default function InterviewRoom({
             setLastQuestion(q.prompt);
             setActiveWritten(q);
           }
-        } else if (agent === "trainer" && mode === "practice") {
+        } else if (
+          agent === "trainer" &&
+          mode === "practice" &&
+          opts.coachingStyle !== "model"
+        ) {
           // T-12: score gates progressing to the next question.
+          // P-02: a "See model answer" response (coachingStyle="model") has no
+          // Score line — don't let parseScore()===null wipe the existing score
+          // and hide the Try again / Skip / Continue controls.
           setLastScore(parseScore(buffer));
         }
       } catch (e) {
@@ -563,17 +621,94 @@ export default function InterviewRoom({
   // and let them advance to the next interviewer question once they've passed.
   const continueToNextQuestion = useCallback(() => {
     if (busyRef.current) return;
+    resetIdleReminders();
     setLastScore(null);
     setLastGradedTranscript("");
     setEditingTranscript(false);
     setTranscriptDraft("");
     void runAgent("interviewer", {});
-  }, [runAgent]);
+  }, [runAgent, resetIdleReminders]);
+
+  const prepareRetry = useCallback(() => {
+    setLastScore(null);
+    setEditingTranscript(false);
+    resetIdleReminders();
+    const prompt = "Take your time. Try the same question again when you're ready.";
+    setMessages((current) => [...current, { speaker: "trainer", text: prompt }]);
+    setSpeakingAgent("trainer");
+    enqueueSpeech(prompt);
+    finalizeSpeech();
+  }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
+
+  const showModelAnswer = useCallback(() => {
+    if (!lastGradedTranscript || busyRef.current) return;
+    void runAgent("trainer", {
+      question: lastQuestionRef.current,
+      answer: lastGradedTranscript,
+      coachingStyle: "model",
+    });
+  }, [lastGradedTranscript, runAgent]);
+
+  // T-01: 2-minute-silence nudge. Fires only when the candidate has NOT begun
+  // answering (guarded by the arming effect below and re-checked here via refs).
+  // It never answers or advances for them — the first nudge is a gentle "take
+  // your time", the second reveals Repeat / Hint / Skip controls. Capped at
+  // MAX_IDLE_REMINDERS so a silent candidate is never nagged indefinitely.
+  const fireIdleReminder = useCallback(() => {
+    idleReminderTimerRef.current = null;
+    if (mutedRef.current || aiSpeakingRef.current || busyRef.current) return;
+    if (idleReminderCountRef.current >= MAX_IDLE_REMINDERS) return;
+    idleReminderCountRef.current += 1;
+    const second = idleReminderCountRef.current >= 2;
+    const who: Speaker = mode === "practice" ? "trainer" : "interviewer";
+    const text = second
+      ? "Still there? There's no rush. When you're ready, just start speaking — or use Repeat to hear the question again, Hint for a nudge, or Skip to move on."
+      : "Take your time — whenever you're ready, go ahead and answer. I'm still listening.";
+    if (second) setShowIdleOptions(true);
+    setMessages((m) => [...m, { speaker: who, text }]);
+    cancelSpeakRef.current = false;
+    setSpeakingAgent(who);
+    enqueueSpeech(text);
+    finalizeSpeech();
+  }, [mode, enqueueSpeech, finalizeSpeech]);
+
+  // T-01: re-speak the current question (client-only, no new turn / no advance).
+  const repeatQuestion = useCallback(() => {
+    const q = lastQuestionRef.current.trim();
+    if (!q || busyRef.current) return;
+    resetIdleReminders();
+    cancelSpeakRef.current = false;
+    setSpeakingAgent("interviewer");
+    enqueueSpeech(q);
+    finalizeSpeech();
+  }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
+
+  // T-01: ask the interviewer for a small hint — does not advance the question.
+  const requestHint = useCallback(() => {
+    if (busyRef.current) return;
+    resetIdleReminders();
+    const hint =
+      "Start with one specific example. Briefly explain the situation, what you did, and the result.";
+    setMessages((current) => [
+      ...current,
+      { speaker: "trainer", text: hint },
+    ]);
+    setSpeakingAgent("trainer");
+    enqueueSpeech(hint);
+    finalizeSpeech();
+  }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
+
+  // T-01: candidate chooses to move on rather than answer this question.
+  const skipQuestion = useCallback(() => {
+    if (busyRef.current) return;
+    continueToNextQuestion();
+  }, [continueToNextQuestion]);
 
   const handleUserUtterance = useCallback(
     (text: string) => {
       const t = text.trim();
       if (!t || busyRef.current) return;
+      resetIdleReminders(); // T-01: they answered — end the silence-nudge cycle
       setLastScore(null); // T-12: reset the gate for this new attempt
       setEditingTranscript(false);
       setTranscriptDraft("");
@@ -608,7 +743,7 @@ export default function InterviewRoom({
         void runAgent("interviewer", { userText: t });
       }
     },
-    [mode, runAgent, enqueueSpeech, finalizeSpeech],
+    [mode, runAgent, enqueueSpeech, finalizeSpeech, resetIdleReminders],
   );
 
   const openEditTranscript = useCallback(() => {
@@ -620,8 +755,15 @@ export default function InterviewRoom({
     const next = transcriptDraft.trim();
     if (!next || busyRef.current) return;
     setEditingTranscript(false);
-    handleUserUtterance(next);
-  }, [transcriptDraft, handleUserUtterance]);
+    setLastScore(null);
+    setLastGradedTranscript(next);
+    void runAgent("trainer", {
+      question: lastQuestionRef.current,
+      answer: next,
+      userText: next,
+      replaceLastUserTurn: true,
+    });
+  }, [transcriptDraft, runAgent]);
 
   // Submit whatever the candidate has said so far (idle-triggered or via the
   // explicit "Done" button). Coaching only fires here, never mid-answer.
@@ -741,6 +883,9 @@ export default function InterviewRoom({
         // Barge-in: the candidate started talking — cut the AI's TTS.
         if (aiSpeakingRef.current) stopSpeakingRef.current();
         clearSilenceTimer();
+        // T-01: they've started — cancel any pending silence nudge and reset the
+        // cycle so a later pause starts fresh.
+        resetIdleRef.current();
         setRecording(true);
       },
       onInterim: (text) => {
@@ -792,6 +937,55 @@ export default function InterviewRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interviewId]);
 
+  // T-01: each new question gets its own fresh reminder cycle.
+  useEffect(() => {
+    resetIdleReminders();
+  }, [lastQuestion, resetIdleReminders]);
+
+  // T-01: arm the "still waiting for you to start" nudge. It runs ONLY in the
+  // true waiting state — mic live, nothing playing or in flight, no buffered
+  // answer, and a question on the table. Any change (candidate speaks, AI talks,
+  // a request starts, mute) tears the timer down via cleanup, so the 2-minute
+  // clock counts only uninterrupted silence and can never fire mid-answer or
+  // auto-advance. Capped at MAX_IDLE_REMINDERS.
+  useEffect(() => {
+    const waitingToStart =
+      listening &&
+      !connecting &&
+      !muted &&
+      !aiSpeaking &&
+      !busy &&
+      !recording &&
+      !interim &&
+      !hasPendingAnswer &&
+      !finishing &&
+      !timeExpired &&
+      !activeWritten &&
+      lastQuestion.trim().length > 0;
+    if (!waitingToStart || idleReminderCountRef.current >= MAX_IDLE_REMINDERS) {
+      clearIdleReminder();
+      return;
+    }
+    clearIdleReminder();
+    idleReminderTimerRef.current = setTimeout(fireIdleReminder, IDLE_REMINDER_MS);
+    return () => clearIdleReminder();
+  }, [
+    listening,
+    connecting,
+    muted,
+    aiSpeaking,
+    busy,
+    recording,
+    interim,
+    hasPendingAnswer,
+    finishing,
+    timeExpired,
+    activeWritten,
+    lastQuestion,
+    fireIdleReminder,
+    clearIdleReminder,
+  ]);
+
   // Mute stops sending mic audio upstream and discards the pending answer.
   const toggleMute = () => {
     setMuted((prev) => {
@@ -799,6 +993,7 @@ export default function InterviewRoom({
       realtimeRef.current?.setMuted(next);
       if (next) {
         clearSilenceTimer();
+        clearIdleReminder(); // T-01: no nudging while muted
         setRecording(false);
         setInterim("");
         answerBufferRef.current = "";
@@ -877,23 +1072,6 @@ export default function InterviewRoom({
               <span className="text-sm">{Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}</span>
             </div>
           )}
-          <button
-            type="button"
-            onClick={toggleMute}
-            className={`min-h-11 flex-1 rounded-xl px-4 py-2.5 text-sm font-medium sm:flex-none sm:px-5 ${
-              muted ? "bg-red-600 text-white" : "border border-gray-300"
-            }`}
-          >
-            {muted ? "Unmute" : "Mute"}
-          </button>
-          <button
-            type="button"
-            disabled={finishing}
-            onClick={handleFinish}
-            className="min-h-11 flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60 sm:flex-none sm:px-5"
-          >
-            {finishing ? "Finishing…" : "Finish"}
-          </button>
         </div>
       </header>
 
@@ -953,8 +1131,115 @@ export default function InterviewRoom({
         </div>
       )}
 
+      {/* T-03: meeting-room stage — three speaker tiles (interviewer / trainer /
+          candidate) with a clear active-speaker state, like a video call. In a
+          formal interview the trainer tile is dimmed ("Observing") since it never
+          interrupts. */}
+      <div className="mt-3 grid grid-cols-3 gap-2 sm:gap-3">
+        {(
+          [
+            {
+              role: "interviewer",
+              name: "Interviewer",
+              sub: "AI interviewer",
+              active: aiSpeaking && speakingAgent === "interviewer",
+              dim: false,
+            },
+            {
+              role: "trainer",
+              name: "Trainer",
+              sub: mode === "practice" ? "AI coach" : "Observing",
+              active: aiSpeaking && speakingAgent === "trainer",
+              dim: mode !== "practice",
+            },
+            {
+              role: "user",
+              name: candidateName,
+              sub: "You",
+              active: recording || interim.length > 0,
+              dim: false,
+            },
+          ] as const
+        ).map((tile) => (
+          <div
+            key={tile.role}
+            className={`relative flex flex-col items-center gap-2 rounded-2xl border p-3 text-center transition sm:p-4 ${
+              tile.active
+                ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-300"
+                : "border-gray-200 bg-white"
+            } ${tile.dim ? "opacity-60" : ""}`}
+            aria-current={tile.active ? "true" : undefined}
+          >
+            <SpeakerAvatar
+              role={tile.role}
+              name={tile.role === "user" ? candidateName : undefined}
+              imageUrl={tile.role === "user" ? candidateImageUrl : undefined}
+              speaking={tile.active}
+              size={56}
+            />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-gray-900">{tile.name}</p>
+              <p className="truncate text-[11px] text-gray-500">{tile.sub}</p>
+            </div>
+            <SpeakingIndicator active={tile.active} tone={tile.role === "user" ? "user" : "ai"} />
+          </div>
+        ))}
+      </div>
+
+      {/* T-03: large live caption of whoever holds the floor right now — the
+          candidate's live transcript while they speak, otherwise the most recent
+          interviewer/trainer turn. The turn-by-turn log moves into the
+          collapsible transcript below. */}
+      <div className="mt-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 sm:px-6 sm:py-5">
+        {(() => {
+          const userSpeaking = recording || interim || hasPendingAnswer;
+          const liveUser = `${answerBufferRef.current}${
+            interim ? (answerBufferRef.current ? " " : "") + interim : ""
+          }`.trim();
+          const lastAi =
+            [...messages]
+              .reverse()
+              .find((m) => m.speaker === "interviewer" || m.speaker === "trainer") ?? null;
+          const who = userSpeaking
+            ? "You"
+            : lastAi?.speaker === "trainer"
+              ? "Trainer"
+              : "Interviewer";
+          const body = userSpeaking
+            ? liveUser || (recording ? "🎙 Listening…" : "…")
+            : lastAi?.text || (connecting ? "Connecting live voice…" : "Waiting to begin…");
+          return (
+            <>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                {who}
+                {aiSpeaking && !userSpeaking ? " · speaking…" : ""}
+              </p>
+              <div
+                aria-live="polite"
+                className="mt-1.5 whitespace-pre-wrap break-words text-base leading-7 text-gray-900 sm:text-lg sm:leading-8"
+              >
+                {body ? renderRich(body) : "…"}
+              </div>
+            </>
+          );
+        })()}
+      </div>
+
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain py-4 sm:space-y-5 sm:py-6">
-        {messages.map((m, i) => {
+        {/* T-03: full turn-by-turn transcript, collapsed by default. */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowTranscript((v) => !v)}
+            aria-expanded={showTranscript}
+            className="inline-flex min-h-9 items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700"
+          >
+            {showTranscript
+              ? "Hide full transcript ▴"
+              : `Show full transcript ▾ (${messages.length})`}
+          </button>
+        </div>
+        {showTranscript && messages.map((m, i) => {
           const isUser = m.speaker === "user";
           const aiActive =
             aiSpeaking &&
@@ -1003,39 +1288,6 @@ export default function InterviewRoom({
             </div>
           );
         })}
-        {(hasPendingAnswer || recording || interim) && (
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-end gap-2.5 sm:gap-3">
-              <div className="max-w-[min(92%,36rem)] break-words rounded-2xl bg-indigo-600/40 px-3.5 py-2.5 text-sm text-white sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 lg:max-w-[min(72%,48rem)]">
-                {answerBufferRef.current || interim
-                  ? `${answerBufferRef.current}${
-                      interim ? (answerBufferRef.current ? " " : "") + interim : ""
-                    }`
-                  : recording
-                    ? "🎙 Listening…"
-                    : "…"}
-              </div>
-              <div className="flex flex-col items-center gap-1">
-                <SpeakerAvatar
-                  role="user"
-                  name={candidateName}
-                  imageUrl={candidateImageUrl}
-                  speaking={recording}
-                />
-                <SpeakingIndicator active={recording} tone="user" />
-              </div>
-            </div>
-            {hasPendingAnswer && !busy && (
-              <button
-                type="button"
-                onClick={submitBufferedAnswer}
-                className="min-h-10 rounded-full bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-sm"
-              >
-                Done answering — submit ↵
-              </button>
-            )}
-          </div>
-        )}
         {activeWritten ? (
           <div className="flex justify-start">
             <QuestionCard
@@ -1050,16 +1302,10 @@ export default function InterviewRoom({
         {mode === "practice" && lastScore != null && !activeWritten ? (
           <div className="flex flex-col items-start gap-2">
             <div
-              className={`max-w-[min(92%,36rem)] rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 lg:max-w-[min(72%,48rem)] ${
-                lastScore >= PASS_THRESHOLD
-                  ? "bg-emerald-100 text-emerald-900"
-                  : "bg-amber-100 text-amber-900"
-              }`}
+              className="max-w-[min(92%,36rem)] rounded-2xl bg-amber-100 px-3.5 py-2.5 text-sm text-amber-900 sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 lg:max-w-[min(72%,48rem)]"
             >
               Score: <span className="font-semibold">{lastScore}/100</span>
-              {lastScore >= PASS_THRESHOLD
-                ? " — nice, you cleared the bar."
-                : ` — aim for ${PASS_THRESHOLD}+. Say the answer again to raise it.`}
+              {" — use the coach's next focus, or continue when you're ready."}
             </div>
             {lastGradedTranscript ? (
               <div className="max-w-[min(92%,36rem)] rounded-2xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 sm:max-w-[min(78%,42rem)] sm:px-5">
@@ -1071,12 +1317,10 @@ export default function InterviewRoom({
                 </p>
               </div>
             ) : null}
-            {lastScore < PASS_THRESHOLD ? (
-              <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
-                Graded from your answer as transcribed above. If it looks garbled,
-                speech-to-text misheard you — edit the transcript or type below.
-              </p>
-            ) : null}
+            <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
+              Graded from your answer as transcribed above. You decide whether to
+              retry, see a model answer, skip, or continue.
+            </p>
             {editingTranscript ? (
               <div className="flex w-full max-w-[min(92%,36rem)] flex-col gap-2 sm:max-w-[min(78%,42rem)]">
                 <label
@@ -1123,7 +1367,34 @@ export default function InterviewRoom({
                     Edit transcript
                   </button>
                 ) : null}
-                {lastScore >= PASS_THRESHOLD && !busy ? (
+                {!busy ? (
+                  <button
+                    type="button"
+                    onClick={prepareRetry}
+                    className="min-h-10 rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900"
+                  >
+                    Try again
+                  </button>
+                ) : null}
+                {lastGradedTranscript && !busy ? (
+                  <button
+                    type="button"
+                    onClick={showModelAnswer}
+                    className="min-h-10 rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900"
+                  >
+                    See model answer
+                  </button>
+                ) : null}
+                {!busy ? (
+                  <button
+                    type="button"
+                    onClick={continueToNextQuestion}
+                    className="min-h-10 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800"
+                  >
+                    Skip question
+                  </button>
+                ) : null}
+                {!busy ? (
                   <button
                     type="button"
                     onClick={continueToNextQuestion}
@@ -1138,10 +1409,13 @@ export default function InterviewRoom({
         ) : null}
       </div>
 
+      {/* T-03: bottom control bar — mic status, reminder options, and the core
+          meeting controls (mute, Done, Leave) integrated in one place. */}
+      <div className="border-t border-gray-100 pt-2 sm:pt-3">
       {/* T-16: explicit voice-input status so the user always knows whether the
           mic is capturing them, waiting, processing — or paused for the AI. */}
       {supported ? (
-        <div className="flex items-center gap-2 border-t border-gray-100 px-1 pt-2 text-xs sm:pt-3">
+        <div className="flex items-center gap-2 px-1 text-xs">
           {(() => {
             let dot = "bg-gray-300";
             let label = "Ready — start speaking, or type below";
@@ -1192,6 +1466,65 @@ export default function InterviewRoom({
           })()}
         </div>
       ) : null}
+
+        {/* T-01: reminder options, surfaced after two silent nudges. */}
+        {showIdleOptions && !busy && !hasPendingAnswer && !activeWritten ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-gray-500">No rush —</span>
+            <button
+              type="button"
+              onClick={repeatQuestion}
+              className="min-h-9 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700"
+            >
+              🔁 Repeat question
+            </button>
+            <button
+              type="button"
+              onClick={requestHint}
+              className="min-h-9 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900"
+            >
+              💡 Hint
+            </button>
+            <button
+              type="button"
+              onClick={skipQuestion}
+              className="min-h-9 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700"
+            >
+              ⏭ Skip
+            </button>
+          </div>
+        ) : null}
+
+        {/* T-03: core meeting controls — mute, submit answer, leave. */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleMute}
+            className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium ${
+              muted ? "bg-red-600 text-white" : "border border-gray-300 text-gray-800"
+            }`}
+          >
+            {muted ? "Unmute" : "Mute"}
+          </button>
+          {hasPendingAnswer && !busy ? (
+            <button
+              type="button"
+              onClick={submitBufferedAnswer}
+              className="min-h-10 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Done — submit ↵
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={finishing}
+            onClick={handleFinish}
+            className="ml-auto min-h-10 rounded-xl bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            {finishing ? "Finishing…" : "Leave"}
+          </button>
+        </div>
+      </div>
 
       <TypeFallback
         onSend={handleUserUtterance}

@@ -128,10 +128,22 @@ export default function InterviewRoom({
   // refreshing, clearing browser storage, or opening another tab.
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [timeExpired, setTimeExpired] = useState(false);
+  const deadlineKey = `interview:${interviewId}:deadline`;
+  const expressionKey = `interview:${interviewId}:expression`;
   // T-14: how elaborate the AI's language is (selectable + switchable). A ref
   // mirrors it so the mount-only recognition path sends the current level too.
-  const [expressionLevel, setExpressionLevel] =
-    useState<ExpressionLevel>("professional");
+  // Initialize from the choice made on the role-selection screen (localStorage),
+  // then it stays switchable here.
+  const [expressionLevel, setExpressionLevel] = useState<ExpressionLevel>(() => {
+    if (typeof window === "undefined") return "professional";
+    const stored = window.localStorage.getItem(expressionKey);
+    return stored === "clear" ||
+      stored === "professional" ||
+      stored === "advanced" ||
+      stored === "expert"
+      ? stored
+      : "professional";
+  });
   const expressionLevelRef = useRef<ExpressionLevel>(expressionLevel);
 
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -200,7 +212,11 @@ export default function InterviewRoom({
   }, [lastQuestion]);
   useEffect(() => {
     expressionLevelRef.current = expressionLevel;
-  }, [expressionLevel]);
+    // Persist so a switch here (or the role-page choice) survives a reload.
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(expressionKey, expressionLevel);
+    }
+  }, [expressionLevel, expressionKey]);
 
   // ---------- TTS (streaming PCM → gapless Web Audio playback) ----------
   // Text is still batched into ~sentence chunks to keep request count low, but
@@ -1321,6 +1337,11 @@ export default function InterviewRoom({
               Graded from your answer as transcribed above. You decide whether to
               retry, see a model answer, skip, or continue.
             </p>
+            {lastScore < PASS_THRESHOLD ? (
+              <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
+                If speech-to-text misheard you, edit the transcript or type below.
+              </p>
+            ) : null}
             {editingTranscript ? (
               <div className="flex w-full max-w-[min(92%,36rem)] flex-col gap-2 sm:max-w-[min(78%,42rem)]">
                 <label

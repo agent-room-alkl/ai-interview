@@ -1,6 +1,6 @@
 "use client";
 // T-09: Scorecard UI + downloads (HTML file + print-to-PDF).
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Dimension = { name: string; score: number; feedback: string };
 type Report = {
@@ -30,28 +30,43 @@ export default function ReportView({
 }) {
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/interview/${interviewId}/report`, {
-          method: "POST",
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const data = (await res.json()) as Report;
-        if (!cancelled) setReport(data);
-      } catch {
-        if (!cancelled) setError("Could not generate the report. Try again.");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const loadReport = useCallback(async (force = false) => {
+    setRetrying(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        "/api/interview/" + interviewId + "/report" + (force ? "?force=1" : ""),
+        { method: "POST" },
+      );
+      if (!res.ok) throw new Error(await res.text());
+      setReport((await res.json()) as Report);
+    } catch {
+      setError("Could not generate the report. Try again.");
+    } finally {
+      setRetrying(false);
+    }
   }, [interviewId]);
 
+  useEffect(() => {
+    void loadReport();
+  }, [loadReport]);
+
   if (error)
-    return <div className="mx-auto max-w-2xl p-8 text-red-600">{error}</div>;
+    return (
+      <div className="mx-auto max-w-2xl p-8 text-red-600">
+        <p>{error}</p>
+        <button
+          type="button"
+          disabled={retrying}
+          onClick={() => void loadReport(true)}
+          className="mt-4 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {retrying ? "Retrying…" : "Try again"}
+        </button>
+      </div>
+    );
   if (!report)
     return (
       <div className="mx-auto max-w-2xl p-8 text-gray-500 animate-pulse">

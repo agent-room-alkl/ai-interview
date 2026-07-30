@@ -25,6 +25,11 @@ const openai = createOpenAI({
  * the bare id ("gpt-4o-mini"). Honor AI_MODEL if set, else pick per mode.
  */
 const configuredModel = process.env.AI_MODEL?.trim();
-export const model = openai(
-  configuredModel || (useGateway ? "openai/gpt-4o-mini" : "gpt-4o-mini"),
-);
+const modelName = configuredModel
+  ? useGateway && !configuredModel.includes("/")
+    ? "openai/" + configuredModel
+    : configuredModel
+  : useGateway
+    ? "openai/gpt-4o-mini"
+    : "gpt-4o-mini";
+export const model = openai(modelName);

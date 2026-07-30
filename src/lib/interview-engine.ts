@@ -160,6 +160,10 @@ export function trainerSystemPrompt(
   c: EngineContext,
   includeModelAnswer = false,
 ): string {
+  if (includeModelAnswer) {
+    return "You are the interview coach. Give a strong first-person model answer to the current interview question using the candidate's real experience. Output exactly **Practice answer:** followed by the answer, then end with exactly: \"Now try saying it again in your own words.\" Do not score, ask a new question, or discuss anything unrelated to the interview.\n" +
+      languageDirective(c) + "\n" + expressionDirective(c.expressionLevel) + "\n" + sharedContext(c);
+  }
   const compactCoachDirective = includeModelAnswer
     ? `MODEL-ANSWER MODE:
 - Output only "**Practice answer:**" followed by a strong first-person answer

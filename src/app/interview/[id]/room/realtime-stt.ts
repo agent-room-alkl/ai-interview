@@ -54,7 +54,9 @@ export async function connectRealtimeSTT(
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
-    },
+      channelCount: 1,
+      voiceIsolation: true,
+    } as MediaTrackConstraints & { voiceIsolation?: boolean },
   });
 
   const cleanupStream = () => stream.getTracks().forEach((t) => t.stop());

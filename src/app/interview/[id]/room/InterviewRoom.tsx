@@ -182,7 +182,7 @@ export default function InterviewRoom({
   const stopSpeakingRef = useRef<() => void>(() => {});
   // No new speech for this long after a completed utterance auto-submits the
   // answer. Any speech resets it, so mid-answer thinking pauses never cut off.
-  const SUBMIT_IDLE_MS = 4000;
+  const SUBMIT_IDLE_MS = 7000;
   // T-01: two distinct silences. (1) A mid-answer pause (buffer non-empty) is
   // handled by SUBMIT_IDLE_MS above. (2) "Hasn't started answering yet" (buffer
   // empty, mic idle) never auto-advances — instead we gently remind the
@@ -1337,7 +1337,7 @@ export default function InterviewRoom({
               className="max-w-[min(92%,36rem)] rounded-2xl bg-amber-100 px-3.5 py-2.5 text-sm text-amber-900 sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 lg:max-w-[min(72%,48rem)]"
             >
               Score: <span className="font-semibold">{lastScore}/100</span>
-              {" — use the coach's next focus, or continue when you're ready."}
+              {" — use the coach's next focus, or choose an action below."}
             </div>
             {lastGradedTranscript ? (
               <div className="max-w-[min(92%,36rem)] rounded-2xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 sm:max-w-[min(78%,42rem)] sm:px-5">
@@ -1350,9 +1350,7 @@ export default function InterviewRoom({
               </div>
             ) : null}
             <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
-              Graded from your answer as transcribed above. You decide whether to
-              retry, see a model answer, skip, or continue. If speech-to-text
-              misheard you, edit the transcript or type below.
+              Review the transcript, retry the answer, see a model answer, or skip to the next question.
             </p>
             {editingTranscript ? (
               <div className="flex w-full max-w-[min(92%,36rem)] flex-col gap-2 sm:max-w-[min(78%,42rem)]">
@@ -1390,7 +1388,7 @@ export default function InterviewRoom({
                 </div>
               </div>
             ) : (
-              <div className="flex flex-wrap gap-2">
+              <div className="mt-1 flex flex-wrap gap-3">
                 {lastGradedTranscript && !busy ? (
                   <button
                     type="button"
@@ -1427,7 +1425,7 @@ export default function InterviewRoom({
                     Skip question
                   </button>
                 ) : null}
-                {!busy ? (
+                {false && !busy ? (
                   <button
                     type="button"
                     onClick={continueToNextQuestion}
@@ -1469,7 +1467,7 @@ export default function InterviewRoom({
               pulse = true;
             } else if (recording || interim) {
               dot = "bg-emerald-500";
-              label = "Listening… take your time — tap Done when finished";
+            label = "Listening… take your time";
               pulse = true;
             } else if (busy) {
               dot = "bg-amber-500";
@@ -1477,7 +1475,7 @@ export default function InterviewRoom({
               pulse = true;
             } else if (hasPendingAnswer) {
               dot = "bg-emerald-500";
-              label = "Keep talking to continue — or pause / tap Done to submit";
+              label = "Keep talking; your answer submits after a pause";
             } else if (listening) {
               // Mic is live and waiting for the candidate to start — blink so
               // it's obvious the app is recording them right now.
@@ -1529,7 +1527,7 @@ export default function InterviewRoom({
         ) : null}
 
         {/* T-03: core meeting controls — mute, submit answer, leave. */}
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3">
           <button
             type="button"
             onClick={toggleMute}
@@ -1539,7 +1537,7 @@ export default function InterviewRoom({
           >
             {muted ? "Unmute" : "Mute"}
           </button>
-          {hasPendingAnswer && !busy ? (
+          {false && hasPendingAnswer && !busy ? (
             <button
               type="button"
               onClick={submitBufferedAnswer}

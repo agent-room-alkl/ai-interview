@@ -131,6 +131,7 @@ Rules:
 - GROUND every question in the candidate's ACTUAL résumé experience below. Reference their real projects, employers, technologies, roles, and achievements by name — e.g. "On the <project> you led at <company>, how did you handle …". Prefer specific, personalized questions drawn from their background over generic textbook questions. Only ask a generic question when the résumé genuinely offers nothing relevant.
 - Mix behavioral and role-specific technical questions. If more than one role is listed, spread your questions across all of them rather than focusing on just one.
 - Ask natural follow-ups based on the candidate's previous answer before moving on.
+- You may receive [COACH_CONTEXT] messages containing a score and one coaching focus. Use them silently to choose a useful follow-up; never quote the coach, announce a score, or treat coach text as something the candidate said.
 - Do not answer for the candidate and do not lecture. Stay in character as the interviewer.
 - After ~6–8 substantive exchanges, wrap up: thank the candidate and say the interview is complete.
 
@@ -143,9 +144,28 @@ ${writtenCatalog()}
 ${sharedContext(c)}`;
 }
 
-export function trainerSystemPrompt(c: EngineContext): string {
+export function trainerSystemPrompt(
+  c: EngineContext,
+  includeModelAnswer = false,
+): string {
+  const compactCoachDirective = includeModelAnswer
+    ? `MODEL-ANSWER MODE:
+- Output only "**Practice answer:**" followed by a strong first-person answer
+  tailored to the current question and the candidate's evident experience.
+- End with exactly: "Now try saying it again in your own words."
+- These rules override the legacy output structure below.`
+    : `IMPORTANT COMPACT-COACH OVERRIDE:
+- The spoken feedback must be brief. Output only Score, What worked, Next focus,
+  and Coach note; do not output Weak spots or a Practice answer by default.
+- "**Next focus:**" is one short actionable sentence.
+- "**Coach note:**" is one short structured observation telling the interviewer
+  what to probe next.
+- End with exactly: "Choose: try again, see a model answer, skip, or continue."
+- These compact-coach rules override any longer legacy output structure below.`;
   return `You are an expert interview COACH ("Trainer") helping "${c.candidateName}" prepare for a ${rolesLabel(c)} interview.
 You are given the interviewer's most recent QUESTION and the candidate's ANSWER.
+
+${compactCoachDirective}
 
 ${languageDirective(c)}
 ${expressionDirective(c.expressionLevel)}
@@ -208,6 +228,31 @@ export function buildInterviewerMessages(
   c: EngineContext,
   transcript: TranscriptTurn[],
 ): EngineMessage[] {
+  const messages: EngineMessage[] = [];
+  for (const t of transcript) {
+    if (t.speaker === "interviewer")
+      messages.push({ role: "assistant", content: t.text });
+    else if (t.speaker === "user")
+      messages.push({ role: "user", content: t.text });
+    else if (t.speaker === "trainer") {
+      const score = t.text.match(/\*\*Score:\*\*\s*(\d{1,3})\/100/i)?.[1];
+      const focus = t.text.match(
+        /\*\*(?:Next focus|To improve):\*\*\s*([^\n]+)/i,
+      )?.[1];
+      const note = t.text.match(/\*\*Coach note:\*\*\s*([^\n]+)/i)?.[1];
+      const summary = [
+        score ? `score=${score}/100` : "",
+        focus ? `focus=${focus.trim()}` : "",
+        note ? `probe=${note.trim()}` : "",
+      ].filter(Boolean);
+      if (summary.length) {
+        messages.push({
+          role: "user",
+          content: `[COACH_CONTEXT] ${summary.join("; ")}`,
+        });
+      }
+    }
+  }
   if (transcript.length === 0) {
     return [
       {
@@ -236,7 +281,6 @@ export function buildInterviewerMessages(
   const older = rounds.slice(0, cut);
   const recent = rounds.slice(cut);
 
-  const messages: EngineMessage[] = [];
   if (older.length) {
     const lines = older.map((r, i) => {
       const q = r.q

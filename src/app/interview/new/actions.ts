@@ -19,6 +19,7 @@ export async function createInterview(
   const candidateName = String(formData.get("candidateName") ?? "").trim();
   const pasted = String(formData.get("resumeText") ?? "").trim();
   const modeRaw = String(formData.get("mode") ?? "").trim();
+  const durationRaw = Number(formData.get("durationMinutes") ?? 20);
   const file = formData.get("resumeFile");
 
   if (!candidateName) {
@@ -28,6 +29,7 @@ export async function createInterview(
   if (modeRaw !== "practice" && modeRaw !== "interview") {
     return { error: "Choose Practice or Interview mode." };
   }
+  const durationMinutes = [10, 20, 30].includes(durationRaw) ? durationRaw : 20;
 
   let resumeText = pasted;
   let resumeFileUrl: string | null = null;
@@ -52,6 +54,7 @@ export async function createInterview(
       resumeText,
       resumeFileUrl,
       mode: modeRaw,
+      durationMinutes,
       status: "draft",
     },
   });

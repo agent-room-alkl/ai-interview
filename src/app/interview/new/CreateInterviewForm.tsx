@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import {
   createInterview,
   type CreateInterviewState,
@@ -10,6 +10,7 @@ const initial: CreateInterviewState = {};
 
 export function CreateInterviewForm() {
   const [state, formAction, pending] = useActionState(createInterview, initial);
+  const [mode, setMode] = useState<"practice" | "interview">("practice");
 
   // React sets method/encType automatically for Server Action forms — do not set encType.
   return (
@@ -37,7 +38,14 @@ export function CreateInterviewForm() {
         <legend className="text-sm font-medium text-[#65736d]">Mode</legend>
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4">
           <label className="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3 sm:flex-1">
-            <input type="radio" name="mode" value="practice" defaultChecked className="size-4 shrink-0" />
+            <input
+              type="radio"
+              name="mode"
+              value="practice"
+              checked={mode === "practice"}
+              onChange={() => setMode("practice")}
+              className="size-4 shrink-0"
+            />
             <span>
               <span className="font-semibold">Practice</span>
               <span className="mt-0.5 block text-xs text-[#65736d]">
@@ -46,7 +54,14 @@ export function CreateInterviewForm() {
             </span>
           </label>
           <label className="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3 sm:flex-1">
-            <input type="radio" name="mode" value="interview" className="size-4 shrink-0" />
+            <input
+              type="radio"
+              name="mode"
+              value="interview"
+              checked={mode === "interview"}
+              onChange={() => setMode("interview")}
+              className="size-4 shrink-0"
+            />
             <span>
               <span className="font-semibold">Interview</span>
               <span className="mt-0.5 block text-xs text-[#65736d]">
@@ -55,6 +70,32 @@ export function CreateInterviewForm() {
             </span>
           </label>
         </div>
+      </fieldset>
+
+      <fieldset className="space-y-3">
+          <legend className="text-sm font-medium text-[#65736d]">
+            Interview length
+          </legend>
+          <div className="grid grid-cols-3 gap-3">
+            {[10, 20, 30].map((minutes) => (
+              <label
+                key={minutes}
+                className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-[#17201e]/15 bg-white px-3 py-2"
+              >
+                <input
+                  type="radio"
+                  name="durationMinutes"
+                  value={minutes}
+                  defaultChecked={minutes === 20}
+                  className="size-4"
+                />
+                <span className="font-medium">{minutes} min</span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-[#65736d]">
+            Interview mode ends at the time limit; practice mode uses it as a guide.
+          </p>
       </fieldset>
 
       <label className="block">

@@ -32,9 +32,24 @@ model Interview {
   targetRoles   String[] @default([]) // one or more roles the candidate is interviewing for
   language      String   @default("en") // BCP-47 primary subtag the interview is conducted in (detected from résumé, user-overridable)
   mode          String // "practice" | "interview"
+  durationMinutes Int    @default(10) // formal interview duration; practice has no hard deadline
   status        String   @default("draft") // draft | ready | in_progress | completed
+  startedAt     DateTime?
+  deadlineAt    DateTime?
   createdAt     DateTime @default(now())
   turns         Turn[]
+  reportCache   InterviewReportCache?
+
+  @@schema("ai_interview")
+}
+
+model InterviewReportCache {
+  id          String    @id @default(cuid())
+  interviewId String    @unique
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  json        String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@schema("ai_interview")
 }

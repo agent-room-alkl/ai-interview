@@ -11,8 +11,9 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const OPENAI_KEY =
-  process.env.OPENAI_API_KEY ?? process.env.AI_GATEWAY_API_KEY ?? "";
+// This endpoint calls api.openai.com directly; Gateway credentials are invalid
+// for that origin.
+const OPENAI_KEY = process.env.OPENAI_API_KEY?.trim() ?? "";
 // gpt-4o-transcribe is the current accurate streaming-grade model; whisper-1 is
 // the classic fallback. Overridable via STT_MODEL.
 const STT_MODEL = process.env.STT_MODEL ?? "gpt-4o-transcribe";

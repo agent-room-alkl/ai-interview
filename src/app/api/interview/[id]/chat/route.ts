@@ -36,7 +36,25 @@ export async function POST(
   }
 
   const body = await req.json();
-  const agent: "interviewer" | "trainer" = body.agent ?? "interviewer";
+  if (body.agent !== "interviewer" && body.agent !== "trainer") {
+    return new Response("invalid_agent", { status: 400 });
+  }
+  const agent: "interviewer" | "trainer" = body.agent;
+
+  if (interview.status === "completed") {
+    return new Response("interview_completed", { status: 409 });
+  }
+  if (
+    interview.mode === "interview" &&
+    interview.deadlineAt &&
+    interview.deadlineAt.getTime() <= Date.now()
+  ) {
+    await prisma.interview.update({
+      where: { id },
+      data: { status: "completed" },
+    });
+    return new Response("interview_expired", { status: 410 });
+  }
 
   // Preset question chip: persist + stream exact interviewer text (no LLM).
   const preset = typeof body.presetQuestion === "string" ? body.presetQuestion.trim() : "";
@@ -76,9 +94,24 @@ export async function POST(
 
   // Persist an incoming user answer if present.
   if (body.userText?.trim()) {
-    await prisma.turn.create({
-      data: { interviewId: id, speaker: "user", text: body.userText.trim() },
-    });
+    const text = body.userText.trim();
+    if (body.replaceLastUserTurn === true && agent === "trainer") {
+      const latestUserTurn = await prisma.turn.findFirst({
+        where: { interviewId: id, speaker: "user" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      });
+      if (!latestUserTurn) {
+        return new Response("user_turn_not_found", { status: 409 });
+      }
+      await prisma.turn.update({
+        where: { id: latestUserTurn.id },
+        data: { text },
+      });
+    } else {
+      await prisma.turn.create({
+        data: { interviewId: id, speaker: "user", text },
+      });
+    }
   }
 
   // Rebuild transcript after possibly inserting the user turn.
@@ -93,7 +126,7 @@ export async function POST(
 
   const system =
     agent === "trainer"
-      ? trainerSystemPrompt(ctx)
+      ? trainerSystemPrompt(ctx, body.coachingStyle === "model")
       : interviewerSystemPrompt(ctx);
   const messages =
     agent === "trainer"

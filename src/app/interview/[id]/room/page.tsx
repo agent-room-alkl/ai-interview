@@ -61,6 +61,7 @@ export default async function RoomPage({
       candidateName={interview.candidateName}
       candidateImageUrl={session.user.imageUrl}
       targetRole={interview.targetRole!}
+      durationMinutes={interview.durationMinutes}
       language={interview.language}
       // Practice gets a soft client countdown; only formal interviews hard-stop.
       deadlineAt={

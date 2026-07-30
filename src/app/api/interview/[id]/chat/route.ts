@@ -11,6 +11,7 @@ import {
   buildTrainerMessages,
   interviewerSystemPrompt,
   trainerSystemPrompt,
+  interviewQuestionLimit,
   type EngineContext,
   type Mode,
   type TranscriptTurn,
@@ -90,6 +91,7 @@ export async function POST(
     mode: interview.mode as Mode,
     language: interview.language,
     expressionLevel,
+    questionLimit: interviewQuestionLimit(interview.durationMinutes),
   };
 
   // Persist an incoming user answer if present.

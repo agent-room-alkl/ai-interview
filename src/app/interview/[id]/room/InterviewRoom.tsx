@@ -79,6 +79,7 @@ export default function InterviewRoom({
   candidateName,
   candidateImageUrl,
   targetRole,
+  durationMinutes,
   deadlineAt,
   initialTurns,
 }: {
@@ -87,6 +88,7 @@ export default function InterviewRoom({
   candidateName: string;
   candidateImageUrl?: string | null;
   targetRole: string;
+  durationMinutes: number;
   deadlineAt: string | null;
   // Interview language is applied server-side (STT/TTS) from the stored record.
   language?: string;
@@ -94,6 +96,9 @@ export default function InterviewRoom({
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialTurns);
+  const questionLimit = durationMinutes <= 10 ? 5 : durationMinutes <= 20 ? 8 : 12;
+  const questionsAsked = messages.filter((m) => m.speaker === "interviewer").length;
+  const progress = Math.min(questionsAsked, questionLimit);
   const [muted, setMuted] = useState(false);
   const [listening, setListening] = useState(false);
   // Surfaced when the mic can't be acquired (permission blocked, no device, or
@@ -636,13 +641,17 @@ export default function InterviewRoom({
   // and let them advance to the next interviewer question once they've passed.
   const continueToNextQuestion = useCallback(() => {
     if (busyRef.current) return;
+    if (mode === "interview" && questionsAsked >= questionLimit) {
+      void handleFinish();
+      return;
+    }
     resetIdleReminders();
     setLastScore(null);
     setLastGradedTranscript("");
     setEditingTranscript(false);
     setTranscriptDraft("");
     void runAgent("interviewer", {});
-  }, [runAgent, resetIdleReminders]);
+  }, [handleFinish, mode, questionLimit, questionsAsked, runAgent, resetIdleReminders]);
 
   const prepareRetry = useCallback(() => {
     setLastScore(null);
@@ -1072,6 +1081,14 @@ export default function InterviewRoom({
                   ? "muted"
                   : "idle"}
           </p>
+          <div className="mt-2 w-full max-w-sm" aria-label={`Question progress: ${progress} of ${questionLimit}`}>
+            <div className="mb-1 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              <span>Question progress</span><span>{progress}/{questionLimit}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
+              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${(progress / questionLimit) * 100}%` }} />
+            </div>
+          </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {timeLeft !== null && (

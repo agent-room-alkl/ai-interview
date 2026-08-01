@@ -232,6 +232,20 @@ export default function InterviewRoom({
   const [activeWritten, setActiveWritten] = useState<WrittenQuestion | null>(() =>
     restoreUnansweredWritten(initialTurns),
   );
+  // Soft re-entry / cached route may keep this client tree mounted with stale
+  // UI while initialTurns already has the written marker. Reconcile after mount.
+  useEffect(() => {
+    const q = restoreUnansweredWritten(initialTurns);
+    if (!q) return;
+    setActiveWritten((current) => (current?.id === q.id ? current : q));
+    setLastQuestion(spokenWrittenText(q));
+    setMessages((prev) =>
+      prev.map((m) => ({
+        speaker: m.speaker,
+        text: displayTurnText(m.speaker, m.text),
+      })),
+    );
+  }, [initialTurns]);
   const [, setUsedWrittenIds] = useState<string[]>([]);
   const writtenCountRef = useRef(
     initialTurns.filter(

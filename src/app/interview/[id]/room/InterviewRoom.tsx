@@ -140,8 +140,7 @@ export default function InterviewRoom({
   const [, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
-  // T-34 / T-20: keep the graded transcript so the candidate can edit ASR text
-  // and re-score without re-speaking.
+  // Legacy transcript editing helpers remain wired to the retry flow.
   const [lastGradedTranscript, setLastGradedTranscript] = useState("");
   const [editingTranscript, setEditingTranscript] = useState(false);
   const [transcriptDraft, setTranscriptDraft] = useState("");
@@ -665,6 +664,9 @@ export default function InterviewRoom({
     }
     resetIdleReminders();
     setLastScore(null);
+    setLastGradedTranscript("");
+    setEditingTranscript(false);
+    setTranscriptDraft("");
     void runAgent("interviewer", {});
   }, [handleFinish, mode, questionLimit, questionsAsked, runAgent, resetIdleReminders]);
 
@@ -752,6 +754,7 @@ export default function InterviewRoom({
         return;
       }
       if (mode === "practice") {
+        setLastGradedTranscript(t);
         // Trainer coaches the latest answer to the last interviewer question.
         // Read the question from a ref so the mount-time recognition handler
         // always coaches against the CURRENT question, not a stale one.
@@ -766,6 +769,39 @@ export default function InterviewRoom({
     },
     [mode, repeatQuestion, runAgent, enqueueSpeech, finalizeSpeech, resetIdleReminders],
   );
+
+  const openEditTranscript = useCallback(() => {
+    setTranscriptDraft(lastGradedTranscript);
+    setEditingTranscript(true);
+  }, [lastGradedTranscript]);
+
+  const submitEditedTranscript = useCallback(() => {
+    const next = transcriptDraft.trim();
+    if (!next || busyRef.current) return;
+    setEditingTranscript(false);
+    handleUserUtterance(next);
+  }, [transcriptDraft, handleUserUtterance]);
+
+  const prepareRetry = useCallback(() => {
+    setLastScore(null);
+    setEditingTranscript(false);
+    setTranscriptDraft("");
+    resetIdleReminders();
+    const prompt = "Take your time. Try the same question again when you're ready.";
+    setMessages((current) => [...current, { speaker: "trainer", text: prompt }]);
+    setSpeakingAgent("trainer");
+    enqueueSpeech(prompt);
+    finalizeSpeech();
+  }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
+
+  const showModelAnswer = useCallback(() => {
+    if (!lastGradedTranscript || busyRef.current) return;
+    void runAgent("trainer", {
+      question: lastQuestionRef.current,
+      answer: lastGradedTranscript,
+      coachingStyle: "model",
+    });
+  }, [lastGradedTranscript, runAgent]);
 
   // Submit whatever the candidate has said so far (idle-triggered or via the
   // explicit "Done" button). Coaching only fires here, never mid-answer.
@@ -1024,6 +1060,14 @@ export default function InterviewRoom({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Restore the latest trainer score from history on load.
+  useEffect(() => {
+    const trainerMsg = [...initialTurns].reverse().find((t) => t.speaker === "trainer");
+    if (trainerMsg) {
+      setLastScore(parseScore(trainerMsg.text));
+    }
+  }, [initialTurns]);
 
   // Mobile browsers keep a new AudioContext suspended until a user gesture.
   // Resume the TTS playback context on the first tap/keypress.

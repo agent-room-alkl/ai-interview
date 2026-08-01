@@ -670,6 +670,19 @@ export default function InterviewRoom({
     void runAgent("interviewer", {});
   }, [handleFinish, mode, questionLimit, questionsAsked, runAgent, resetIdleReminders]);
 
+  // Passing answers should flow into the next question automatically. Keep the
+  // completed Trainer feedback visible for a moment so the score is readable,
+  // then advance without making the candidate repeat a question they passed.
+  useEffect(() => {
+    if (mode !== "practice" || busy || activeWritten || lastScore == null || lastScore < 75) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      continueToNextQuestion();
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [activeWritten, busy, continueToNextQuestion, lastScore, mode]);
+
   // T-01: 2-minute-silence nudge. Fires only when the candidate has NOT begun
   // answering (guarded by the arming effect below and re-checked here via refs).
   // It never answers or advances for them — the first nudge is a gentle "take

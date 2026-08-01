@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { extendAccessUntil, isPackId } from "@/lib/billing";
+import { fulfillPaidCheckoutSession } from "@/lib/billing-fulfill";
 import { prisma } from "@/lib/prisma";
 import { Logo } from "@/components/Logo";
 import { getStripe, stripeConfigured } from "@/lib/stripe";
@@ -12,8 +12,8 @@ export const metadata = {
 };
 
 /**
- * Success landing after Stripe Checkout. Also fulfills access if the webhook
- * has not landed yet (best-effort; webhook remains source of truth in prod).
+ * Success landing after Stripe Checkout.
+ * Uses the same atomic fulfill path as the webhook (claim-once).
  */
 export default async function BillingSuccessPage({
   searchParams,
@@ -36,44 +36,10 @@ export default async function BillingSuccessPage({
         checkout.payment_status === "paid" &&
         checkout.metadata?.userId === session.user.id
       ) {
-        const existing = await prisma.purchase.findFirst({
-          where: { stripeCheckoutSession: sessionId },
-        });
-        if (existing?.status === "paid") {
+        const result = await fulfillPaidCheckoutSession(checkout);
+        if (result.outcome === "granted" || result.outcome === "already_fulfilled") {
           fulfilled = true;
-        } else {
-          const pack = checkout.metadata?.pack;
-          const days = Number(checkout.metadata?.days);
-          if (isPackId(pack) && Number.isFinite(days) && days > 0) {
-            const user = await prisma.user.findUnique({
-              where: { id: session.user.id },
-              select: { accessUntil: true },
-            });
-            const next = extendAccessUntil(user?.accessUntil, days);
-            const paymentIntent =
-              typeof checkout.payment_intent === "string"
-                ? checkout.payment_intent
-                : checkout.payment_intent?.id ?? null;
-            await prisma.$transaction(async (tx) => {
-              await tx.user.update({
-                where: { id: session.user.id },
-                data: { accessUntil: next },
-              });
-              if (existing) {
-                await tx.purchase.update({
-                  where: { id: existing.id },
-                  data: {
-                    status: "paid",
-                    paidAt: new Date(),
-                    stripeCheckoutSession: sessionId,
-                    stripePaymentIntent: paymentIntent,
-                  },
-                });
-              }
-            });
-            accessUntil = next;
-            fulfilled = true;
-          }
+          accessUntil = result.accessUntil;
         }
       }
     } catch {

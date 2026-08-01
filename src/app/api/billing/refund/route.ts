@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { canRequestRefund, shortenAccessUntil } from "@/lib/billing";
+import { canRequestRefund } from "@/lib/billing";
+import { fulfillPurchaseRefund } from "@/lib/billing-fulfill";
 import { prisma } from "@/lib/prisma";
 import { getStripe, stripeConfigured } from "@/lib/stripe";
 
@@ -65,38 +66,30 @@ export async function POST(req: Request) {
       },
     });
 
-    // Optimistic local revoke; charge.refunded webhook keeps this idempotent.
+    const result = await fulfillPurchaseRefund({
+      purchaseId: purchase.id,
+      refundId: refund.id,
+      paymentIntent: purchase.stripePaymentIntent,
+    });
+
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: { accessUntil: true },
-    });
-    const nextAccess = shortenAccessUntil(user?.accessUntil, purchase.days);
-
-    await prisma.$transaction(async (tx) => {
-      await tx.purchase.update({
-        where: { id: purchase.id },
-        data: {
-          status: "refunded",
-          stripeRefundId: refund.id,
-          refundedAt: new Date(),
-        },
-      });
-      await tx.user.update({
-        where: { id: session.user.id },
-        data: { accessUntil: nextAccess },
-      });
     });
 
     return NextResponse.json({
       ok: true,
       refundId: refund.id,
-      accessUntil: nextAccess?.toISOString() ?? null,
+      outcome: result.outcome,
+      accessUntil: user?.accessUntil?.toISOString() ?? null,
     });
   } catch (err) {
-    await prisma.purchase.update({
-      where: { id: purchase.id },
-      data: { status: "paid", refundRequestedAt: null },
-    }).catch(() => undefined);
+    await prisma.purchase
+      .update({
+        where: { id: purchase.id },
+        data: { status: "paid", refundRequestedAt: null },
+      })
+      .catch(() => undefined);
     const message = err instanceof Error ? err.message : "Refund failed";
     return NextResponse.json({ error: message }, { status: 502 });
   }

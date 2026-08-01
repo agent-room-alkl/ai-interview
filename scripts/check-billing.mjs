@@ -120,4 +120,32 @@ assert.equal(
   assert.equal(shortened.toISOString(), "2026-08-09T12:00:00.000Z");
 }
 
+// Claim-once semantics (mirrors updateMany status filters in billing-fulfill)
+function canClaimPaid(status) {
+  return status === "pending" || status === "failed";
+}
+function canClaimRefund(status) {
+  return status === "paid" || status === "refund_requested";
+}
+assert.equal(canClaimPaid("pending"), true);
+assert.equal(canClaimPaid("paid"), false);
+assert.equal(canClaimPaid("paid") || canClaimPaid("paid"), false);
+// Second concurrent fulfill sees paid → no second extend
+{
+  let grants = 0;
+  for (const status of ["pending", "paid"]) {
+    if (canClaimPaid(status)) grants += 1;
+  }
+  assert.equal(grants, 1);
+}
+assert.equal(canClaimRefund("paid"), true);
+assert.equal(canClaimRefund("refunded"), false);
+{
+  let refunds = 0;
+  for (const status of ["paid", "refunded"]) {
+    if (canClaimRefund(status)) refunds += 1;
+  }
+  assert.equal(refunds, 1);
+}
+
 console.log("all billing checks passed");

@@ -9,7 +9,11 @@ export default function PausedInterview({ interviewId, remainingSeconds }: { int
   const resume = async () => {
     setBusy(true);
     const response = await fetch(`/api/interview/${interviewId}/resume`, { method: "POST" });
-    if (response.ok) router.refresh();
+    if (response.ok) {
+      // A hard navigation bypasses any cached RSC payload so the resumed room
+      // loads the latest persisted turns/current question from the database.
+      window.location.assign(`/interview/${interviewId}/room`);
+    }
     else setBusy(false);
   };
   const minutes = Math.floor(remainingSeconds / 60);

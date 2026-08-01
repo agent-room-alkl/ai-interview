@@ -66,6 +66,7 @@ export default async function RoomPage({
     <InterviewRoom
       interviewId={id}
       mode={interview.mode as "practice" | "interview"}
+      language={interview.language}
       targetRole={interview.targetRole!}
       durationMinutes={interview.durationMinutes}
       // Practice gets a soft client countdown; only formal interviews hard-stop.

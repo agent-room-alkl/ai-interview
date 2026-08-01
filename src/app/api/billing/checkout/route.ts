@@ -71,6 +71,8 @@ export async function POST(req: Request) {
         days: String(pack.days),
         purchaseId: purchase.id,
       },
+      // Lets buyers enter Stripe Promotion codes (e.g. DAY1 → $1 day intro).
+      allow_promotion_codes: true,
       success_url: `${site}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${site}/pricing?cancelled=1`,
     });

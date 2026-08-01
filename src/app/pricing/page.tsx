@@ -107,8 +107,10 @@ export default async function PricingPage({
         />
 
         <p className="mt-8 text-xs leading-5 text-[#65736d]">
-          Secure checkout via Stripe. Access starts as soon as payment succeeds
-          and stacks if you already have remaining time. Refunds within 24 hours.
+          Secure checkout via Stripe. On the Stripe payment page you can add a
+          promotion code when one is available. Access starts as soon as payment
+          succeeds and stacks if you already have remaining time. Refunds within
+          24 hours.
         </p>
       </div>
     </main>

@@ -12,7 +12,7 @@ import {
   SAMPLE_WRITTEN_QUESTIONS,
   type WrittenQuestion,
 } from "@/lib/written-questions";
-import { type ExpressionLevel } from "@/lib/interview-engine";
+import { PASS_THRESHOLD, type ExpressionLevel } from "@/lib/interview-engine";
 import { QuestionCard } from "./QuestionCard";
 import { SpeakingIndicator } from "./SpeakingIndicator";
 import {
@@ -132,8 +132,9 @@ export default function InterviewRoom({
   const [, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
-  // Visible Pass handoff after a practice score of 75+ (silent — no trainer TTS).
+  // Visible Pass handoff after a practice score of PASS_THRESHOLD+ (silent — no trainer TTS).
   const [showPassHandoff, setShowPassHandoff] = useState(false);
+  const showPassHandoffRef = useRef(false);
   // After a pass, hide trainer/answer panels without wiping message history
   // (wiping history incorrectly reset progress back to 1/N).
   const [clearExchangeUI, setClearExchangeUI] = useState(false);
@@ -216,6 +217,9 @@ export default function InterviewRoom({
   useEffect(() => {
     mutedRef.current = muted;
   }, [muted]);
+  useEffect(() => {
+    showPassHandoffRef.current = showPassHandoff;
+  }, [showPassHandoff]);
   useEffect(() => {
     aiSpeakingRef.current = aiSpeaking;
   }, [aiSpeaking]);
@@ -547,7 +551,7 @@ export default function InterviewRoom({
       chatAbortRef.current = ac;
       setBusy(true);
       // Practice trainer scores must finish before we know whether to speak.
-      // Defer TTS for scored coaching so a pass (>=75) stays display-only.
+      // Defer TTS for scored coaching so a pass (>= PASS_THRESHOLD) stays display-only.
       const deferTrainerSpeech =
         agent === "trainer" &&
         mode === "practice" &&
@@ -642,7 +646,7 @@ export default function InterviewRoom({
           // and hide the Try again / Skip / Continue controls.
           const score = parseScore(buffer);
           setLastScore(score);
-          if (score != null && score >= 75) {
+          if (score != null && score >= PASS_THRESHOLD) {
             // Pass: display-only feedback, no trainer TTS, then Pass handoff UI.
             stopSpeaking();
             setShowPassHandoff(true);
@@ -717,15 +721,30 @@ export default function InterviewRoom({
       busy ||
       activeWritten ||
       lastScore == null ||
-      lastScore < 75 ||
+      lastScore < PASS_THRESHOLD ||
       !showPassHandoff
     ) {
       return;
     }
+    let cancelled = false;
+    let retryTimer: number | undefined;
     const timer = window.setTimeout(() => {
-      continueToNextQuestion();
+      const tryAdvance = () => {
+        if (cancelled) return;
+        // Wait out any in-flight request rather than dropping the handoff.
+        if (busyRef.current) {
+          retryTimer = window.setTimeout(tryAdvance, 250);
+          return;
+        }
+        continueToNextQuestion();
+      };
+      tryAdvance();
     }, 3000);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+    };
   }, [activeWritten, busy, continueToNextQuestion, lastScore, mode, showPassHandoff]);
 
   // T-01: 2-minute-silence nudge. Fires only when the candidate has NOT begun
@@ -736,6 +755,8 @@ export default function InterviewRoom({
   const fireIdleReminder = useCallback(() => {
     idleReminderTimerRef.current = null;
     if (mutedRef.current || aiSpeakingRef.current || busyRef.current) return;
+    // Never nudge during the silent Pass → next-question handoff.
+    if (showPassHandoffRef.current) return;
     if (idleReminderCountRef.current >= MAX_IDLE_REMINDERS) return;
     idleReminderCountRef.current += 1;
     const second = idleReminderCountRef.current >= 2;
@@ -1030,6 +1051,7 @@ export default function InterviewRoom({
       !finishing &&
       !timeExpired &&
       !activeWritten &&
+      !showPassHandoff &&
       lastQuestion.trim().length > 0;
     if (!waitingToStart || idleReminderCountRef.current >= MAX_IDLE_REMINDERS) {
       clearIdleReminder();
@@ -1050,6 +1072,7 @@ export default function InterviewRoom({
     finishing,
     timeExpired,
     activeWritten,
+    showPassHandoff,
     lastQuestion,
     fireIdleReminder,
     clearIdleReminder,
@@ -1074,46 +1097,80 @@ export default function InterviewRoom({
 
   // Resume rules:
   // - No interviewer yet → ask the first question.
-  // - Latest turn is interviewer → stay on that current question.
-  // - Latest is trainer with score >= 75 → request the next question.
-  // - Latest is trainer with score < 75 (or unscored) → stay; do not restart at Q1.
+  // - Latest interviewer round already has a user answer + pass score, and no
+  //   newer interviewer → request the next question (ignore later idle nudges).
+  // - Latest interviewer still open / failed score → stay; do not restart at Q1.
   // - Interview mode + latest user turn → interviewer should respond.
   useEffect(() => {
-    const latest = initialTurns.at(-1);
     const hasInterviewer = initialTurns.some((turn) => turn.speaker === "interviewer");
     if (!hasInterviewer) {
       void runAgent("interviewer", {});
       return;
     }
-    if (mode === "interview" && latest?.speaker === "user") {
+    if (mode === "interview" && initialTurns.at(-1)?.speaker === "user") {
       void runAgent("interviewer", {});
       return;
     }
-    if (latest?.speaker === "trainer") {
-      const score = parseScore(latest.text);
-      if (score != null && score >= 75) {
-        // Passed round already persisted — advance without replaying pass TTS.
-        setClearExchangeUI(true);
-        setLastScore(null);
-        void runAgent("interviewer", {});
+    if (mode === "practice") {
+      let lastInterviewerIdx = -1;
+      for (let i = initialTurns.length - 1; i >= 0; i -= 1) {
+        if (initialTurns[i].speaker === "interviewer") {
+          lastInterviewerIdx = i;
+          break;
+        }
       }
-      // else stay on the current question + trainer feedback
+      if (lastInterviewerIdx >= 0) {
+        let passed = false;
+        for (let i = lastInterviewerIdx + 1; i < initialTurns.length; i += 1) {
+          const turn = initialTurns[i];
+          if (turn.speaker === "interviewer") break;
+          if (turn.speaker === "trainer") {
+            const score = parseScore(turn.text);
+            if (score != null && score >= PASS_THRESHOLD) passed = true;
+          }
+        }
+        if (passed) {
+          // Passed round already persisted — advance without replaying pass TTS.
+          setClearExchangeUI(true);
+          setLastScore(null);
+          setShowPassHandoff(false);
+          void runAgent("interviewer", {});
+        }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Restore the latest trainer score / graded answer from history on load.
   useEffect(() => {
-    const trainerMsg = [...initialTurns].reverse().find((t) => t.speaker === "trainer");
-    if (trainerMsg) {
-      const score = parseScore(trainerMsg.text);
-      // Only restore a failing/unscored gate — a pass should advance (see above).
-      if (score == null || score < 75) {
-        setLastScore(score);
+    // Only restore a failing/unscored gate on the CURRENT interviewer round —
+    // a pass should advance (see resume effect above), not re-lock the UI.
+    let lastInterviewerIdx = -1;
+    for (let i = initialTurns.length - 1; i >= 0; i -= 1) {
+      if (initialTurns[i].speaker === "interviewer") {
+        lastInterviewerIdx = i;
+        break;
       }
     }
-    const userMsg = [...initialTurns].reverse().find((t) => t.speaker === "user");
-    if (userMsg) setLastGradedTranscript(userMsg.text);
+    if (lastInterviewerIdx >= 0) {
+      let latestTrainer: Msg | undefined;
+      let latestUser: Msg | undefined;
+      let passed = false;
+      for (let i = lastInterviewerIdx + 1; i < initialTurns.length; i += 1) {
+        const turn = initialTurns[i];
+        if (turn.speaker === "interviewer") break;
+        if (turn.speaker === "trainer") {
+          latestTrainer = turn;
+          const score = parseScore(turn.text);
+          if (score != null && score >= PASS_THRESHOLD) passed = true;
+        }
+        if (turn.speaker === "user") latestUser = turn;
+      }
+      if (latestTrainer && !passed) {
+        setLastScore(parseScore(latestTrainer.text));
+      }
+      if (latestUser) setLastGradedTranscript(latestUser.text);
+    }
   }, [initialTurns]);
 
   // Mobile browsers keep a new AudioContext suspended until a user gesture.
@@ -1300,7 +1357,7 @@ export default function InterviewRoom({
               <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(trainerText)}
                 {mode === "practice" && lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
-                {showPassHandoff && lastScore != null && lastScore >= 75 ? (
+                {showPassHandoff && lastScore != null && lastScore >= PASS_THRESHOLD ? (
                   <div
                     role="status"
                     className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-900"
@@ -1327,7 +1384,7 @@ export default function InterviewRoom({
         );
       })()}
 
-      {mode === "practice" && lastScore != null && !activeWritten && showPassHandoff && lastScore >= 75 && (
+      {mode === "practice" && lastScore != null && !activeWritten && showPassHandoff && lastScore >= PASS_THRESHOLD && (
         <div
           role="status"
           className="mt-2 shrink-0 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-center"
@@ -1339,7 +1396,7 @@ export default function InterviewRoom({
         </div>
       )}
 
-      {mode === "practice" && lastScore != null && !activeWritten && !(showPassHandoff && lastScore >= 75) && (
+      {mode === "practice" && lastScore != null && !activeWritten && !(showPassHandoff && lastScore >= PASS_THRESHOLD) && (
         <div className="mt-2 shrink-0 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
           {editingTranscript ? (
             <div className="flex flex-col gap-2">

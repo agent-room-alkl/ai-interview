@@ -23,6 +23,14 @@ const LANGUAGE_OPTIONS: { code: string; label: string }[] = [
   { code: "hi", label: "हिन्दी (Hindi)" },
 ];
 
+// T-14: how elaborate the AI talks — mirrors the options in the interview room.
+const EXPRESSION_OPTIONS: { value: string; label: string }[] = [
+  { value: "clear", label: "Clear · plain words, short sentences" },
+  { value: "professional", label: "Professional · standard workplace tone" },
+  { value: "advanced", label: "Advanced · domain terms & depth" },
+  { value: "expert", label: "Expert · dense & rigorous" },
+];
+
 const ANALYSIS_STAGES = [
   { id: "upload", label: "Reading uploaded résumé" },
   { id: "parse", label: "Parsing résumé text" },
@@ -47,6 +55,8 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
   // T-05: interview language — detected from the résumé, user-overridable.
   const [language, setLanguage] = useState("en");
   const [languageDetected, setLanguageDetected] = useState(false);
+  // T-14: how elaborate the AI talks; carried into the room via localStorage.
+  const [expressionLevel, setExpressionLevel] = useState("professional");
   const stageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const clearStageTimer = () => {
@@ -118,7 +128,18 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ roles: chosenRoles, language }),
     });
-    if (res.ok) router.push(`/interview/${interviewId}/room`);
+    if (res.ok) {
+      // The room reads this as its starting expression level (still switchable there).
+      try {
+        window.localStorage.setItem(
+          `interview:${interviewId}:expression`,
+          expressionLevel,
+        );
+      } catch {
+        /* ignore storage errors */
+      }
+      router.push(`/interview/${interviewId}/room`);
+    }
     else {
       setSaving(false);
       setError("Could not save role.");
@@ -267,6 +288,29 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
           >
             {LANGUAGE_OPTIONS.map((o) => (
               <option key={o.code} value={o.code}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <label
+            className="mt-5 block text-sm font-medium"
+            htmlFor="expression-level"
+          >
+            Expression level
+          </label>
+          <p className="mt-0.5 text-xs text-gray-500">
+            How elaborate the AI talks — not the role difficulty. You can change
+            it during the interview too.
+          </p>
+          <select
+            id="expression-level"
+            value={expressionLevel}
+            onChange={(e) => setExpressionLevel(e.target.value)}
+            className="mt-2 min-h-11 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-base sm:text-sm"
+          >
+            {EXPRESSION_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}

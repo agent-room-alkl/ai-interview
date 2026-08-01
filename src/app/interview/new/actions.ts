@@ -5,10 +5,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseResumeFile, standardizeResumeText } from "@/lib/resume-parse";
 
-export type CreateInterviewState = {
-  error?: string;
-  resumePreview?: string;
-};
+export type CreateInterviewState = { error?: string; resumePreview?: string };
 
 export async function createInterview(
   _prev: CreateInterviewState,
@@ -22,6 +19,7 @@ export async function createInterview(
   const candidateName = String(formData.get("candidateName") ?? "").trim();
   const pasted = String(formData.get("resumeText") ?? "").trim();
   const modeRaw = String(formData.get("mode") ?? "").trim();
+  const durationRaw = Number(formData.get("durationMinutes") ?? 20);
   const file = formData.get("resumeFile");
 
   if (!candidateName) {
@@ -31,36 +29,23 @@ export async function createInterview(
   if (modeRaw !== "practice" && modeRaw !== "interview") {
     return { error: "Choose Practice or Interview mode." };
   }
+  const durationMinutes = [10, 20, 30].includes(durationRaw) ? durationRaw : 20;
 
   let resumeText = pasted;
   let resumeFileUrl: string | null = null;
 
-  // The first file submission returns a sanitized, compact preview so the
-  // candidate can review/edit it before an interview record is created.
   if (!pasted && file instanceof File && file.size > 0) {
     const parsed = await parseResumeFile(file);
     if (parsed.error) return { error: parsed.error };
     resumeText = standardizeResumeText(parsed.text);
-    if (!resumeText) {
-      return { error: "Could not find usable résumé content after removing contact details." };
-    }
+    if (!resumeText) return { error: "Could not find usable résumé content after removing contact details." };
     return { resumePreview: resumeText };
   }
 
   if (resumeText) {
     resumeText = standardizeResumeText(resumeText);
-    if (!resumeText) {
-      return { error: "Please provide résumé content other than contact details." };
-    }
-    if (file instanceof File && file.size > 0) {
-      resumeFileUrl = file.name;
-    }
-  } else if (file instanceof File && file.size > 0) {
-    // Defensive fallback for unusual multipart submissions.
-    const parsed = await parseResumeFile(file);
-    if (parsed.error) return { error: parsed.error };
-    resumeText = standardizeResumeText(parsed.text);
-    resumeFileUrl = file.name;
+    if (!resumeText) return { error: "Please provide résumé content other than contact details." };
+    if (file instanceof File && file.size > 0) resumeFileUrl = file.name;
   }
 
   if (!resumeText) {
@@ -81,6 +66,7 @@ export async function createInterview(
         resumeText,
         resumeFileUrl,
         mode: modeRaw,
+        durationMinutes,
         status: "draft",
       },
     });

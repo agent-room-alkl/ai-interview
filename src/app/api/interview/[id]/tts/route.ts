@@ -11,7 +11,9 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const OPENAI_KEY = process.env.OPENAI_API_KEY ?? process.env.AI_GATEWAY_API_KEY ?? "";
+// Speech endpoints are called directly at api.openai.com. A Vercel AI Gateway
+// key is not an OpenAI API key and must never be sent to this origin.
+const OPENAI_KEY = process.env.OPENAI_API_KEY?.trim() ?? "";
 const TTS_MODEL = process.env.TTS_MODEL ?? "gpt-4o-mini-tts";
 const TTS_VOICE = process.env.TTS_VOICE ?? "alloy";
 

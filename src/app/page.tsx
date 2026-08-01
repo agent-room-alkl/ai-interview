@@ -3,6 +3,7 @@ import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { Logo } from "@/components/Logo";
+import { ACCESS_PACKS, formatUsd, PACK_IDS } from "@/lib/billing";
 import {
   SITE_DEFAULT_TITLE,
   SITE_DESCRIPTION,
@@ -103,9 +104,25 @@ export default async function Home() {
         description: SITE_DESCRIPTION,
         slogan: SITE_TAGLINE,
         offers: {
-          "@type": "Offer",
-          price: "0",
+          "@type": "AggregateOffer",
+          lowPrice: "0",
+          highPrice: "19",
           priceCurrency: "USD",
+          offerCount: "4",
+          offers: [
+            {
+              "@type": "Offer",
+              name: "Free 10-minute trial",
+              price: "0",
+              priceCurrency: "USD",
+            },
+            ...PACK_IDS.map((id) => ({
+              "@type": "Offer" as const,
+              name: `Practice access — ${ACCESS_PACKS[id].name}`,
+              price: String(ACCESS_PACKS[id].amountCents / 100),
+              priceCurrency: "USD",
+            })),
+          ],
         },
       },
       {
@@ -133,6 +150,12 @@ export default async function Home() {
               href="#how-it-works"
             >
               How it works
+            </a>
+            <a
+              className="hidden transition-opacity hover:opacity-60 sm:inline"
+              href="#pricing"
+            >
+              Pricing
             </a>
             <a
               className="hidden transition-opacity hover:opacity-60 md:inline"
@@ -196,9 +219,13 @@ export default async function Home() {
                 href="#pricing"
                 className="inline-flex min-h-12 items-center justify-center rounded-full border border-[#17201e]/20 px-6 py-3.5 text-sm font-semibold transition-colors hover:bg-white/60"
               >
-                Free while we build
+                From $3 · free 10‑min trial
               </a>
             </div>
+            <p className="mt-4 text-xs leading-5 text-[#65736d] sm:text-sm">
+              One free 10-minute session · then $3/day · $9/week · $19/month
+              (one-time, stackable)
+            </p>
           </div>
           <div className="relative mx-auto w-full max-w-md px-1 lg:mb-2 lg:px-0">
             <div className="rounded-[1.5rem] border border-[#17201e]/10 bg-[#e3eee7] p-2.5 shadow-[0_24px_70px_-30px_rgba(23,32,30,0.35)] sm:rounded-[2rem] sm:p-3">
@@ -269,19 +296,79 @@ export default async function Home() {
             One free 10-minute trial. Then simple one-time packs.
           </h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
-            New users get one 10-minute practice session. After that, buy access
-            that stacks: <strong className="font-semibold text-[#17201e]">$3 / day</strong>,{" "}
-            <strong className="font-semibold text-[#17201e]">$9 / week</strong>, or{" "}
-            <strong className="font-semibold text-[#17201e]">$19 / month</strong>.
-            While access is active you can run unlimited 10 / 20 / 30 minute sessions —
-            no subscription required.
+            New accounts get one free 10-minute session (20/30 min unlock after
+            purchase). Packs are one-time payments that stack onto your access
+            window — not subscriptions. While access is active, run unlimited
+            10 / 20 / 30 minute sessions.
           </p>
-          <a
-            href="/pricing"
-            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-[#17201e] px-5 py-3 text-sm font-semibold text-[#f6f5f0]"
-          >
-            See pricing
-          </a>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <article className="rounded-3xl border border-dashed border-[#17201e]/20 bg-white/40 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#65736d]">
+                Free trial
+              </p>
+              <p className="mt-4 text-3xl font-semibold tracking-[-0.05em]">$0</p>
+              <p className="mt-1 text-sm text-[#65736d]">1× 10 minutes</p>
+              <p className="mt-4 text-sm leading-6 text-[#65736d]">
+                Once per account. No card required to try.
+              </p>
+            </article>
+            {PACK_IDS.map((id) => {
+              const pack = ACCESS_PACKS[id];
+              const highlight = id === "month";
+              return (
+                <article
+                  key={id}
+                  className={`rounded-3xl border p-5 ${
+                    highlight
+                      ? "border-[#17201e] bg-[#17201e] text-[#f6f5f0]"
+                      : "border-[#17201e]/10 bg-white/70"
+                  }`}
+                >
+                  <p
+                    className={`text-xs font-semibold uppercase tracking-[0.14em] ${
+                      highlight ? "text-[#d7f16a]" : "text-[#65736d]"
+                    }`}
+                  >
+                    {pack.name}
+                    {highlight ? " · best value" : ""}
+                  </p>
+                  <p className="mt-4 text-3xl font-semibold tracking-[-0.05em]">
+                    {formatUsd(pack.amountCents)}
+                  </p>
+                  <p
+                    className={`mt-1 text-sm ${
+                      highlight ? "text-[#a9bbb2]" : "text-[#65736d]"
+                    }`}
+                  >
+                    {pack.days} day{pack.days === 1 ? "" : "s"} access
+                  </p>
+                  <p
+                    className={`mt-4 text-sm leading-6 ${
+                      highlight ? "text-[#c5d4cd]" : "text-[#65736d]"
+                    }`}
+                  >
+                    {pack.blurb}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              href="/pricing"
+              className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#17201e] px-5 py-3 text-sm font-semibold text-[#f6f5f0]"
+            >
+              Buy a pack
+            </Link>
+            <Link
+              href={userId ? "/interview/new" : "/signup"}
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#17201e]/15 px-5 py-3 text-sm font-semibold"
+            >
+              Start free trial
+            </Link>
+          </div>
         </section>
 
         <section

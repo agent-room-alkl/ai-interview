@@ -1206,8 +1206,16 @@ export default function InterviewRoom({
         const liveUser = `${answerBufferRef.current}${
           interim ? (answerBufferRef.current ? " " : "") + interim : ""
         }`.trim();
-        const latestTrainer = [...messages].reverse().find((m) => m.speaker === "trainer")?.text;
-        const latestUser = [...messages].reverse().find((m) => m.speaker === "user")?.text;
+        // Only show feedback and the answer belonging to the active question.
+        // The full message list is retained for progress/history, but looking
+        // across all of it made the previous round remain beside a new question.
+        const currentQuestionIndex = messages.findLastIndex(
+          (m) => m.speaker === "interviewer",
+        );
+        const currentTurn =
+          currentQuestionIndex >= 0 ? messages.slice(currentQuestionIndex + 1) : messages;
+        const latestTrainer = [...currentTurn].reverse().find((m) => m.speaker === "trainer")?.text;
+        const latestUser = [...currentTurn].reverse().find((m) => m.speaker === "user")?.text;
         const trainerText = latestTrainer || (mode === "practice" ? "Waiting for your answer…" : "Observing");
         const answerText = userSpeaking
           ? liveUser || (recording ? "🎙 Listening…" : "…")

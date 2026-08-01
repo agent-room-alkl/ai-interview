@@ -16,9 +16,9 @@ export default async function NewInterviewPage() {
   return (
     <main className="min-h-dvh bg-[#f6f5f0] text-[#17201e]">
       <div className="safe-px mx-auto max-w-7xl px-4 py-8 sm:px-10 sm:py-10 lg:px-16">
-        <header className="flex items-center justify-between border-b border-[#17201e]/10 pb-4">
-          <Link href="/" className="inline-flex"><Logo compact /></Link>
-          <Link href="/dashboard" className="inline-flex min-h-11 items-center text-sm text-[#65736d] hover:opacity-70">
+        <header className="flex items-center justify-between border-b border-[#17201e]/10 pb-4 mb-6">
+          <Link href="/dashboard" className="inline-flex"><Logo compact /></Link>
+          <Link href="/dashboard" className="text-sm text-[#65736d] hover:opacity-70">
             ← Dashboard
           </Link>
         </header>

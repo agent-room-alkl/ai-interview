@@ -55,6 +55,16 @@ Also detect the language the résumé is predominantly written in and return it 
 (a lowercase BCP-47 primary subtag) — this is the language the interview will default to.
 Return ONLY the structured object.`;
 
+function detectPredominantLanguage(text: string, inferred: string): string {
+  if (inferred === "zh") {
+    const chineseChars = text.match(/[\u4e00-\u9fa5]/g) || [];
+    if (chineseChars.length < 50 || chineseChars.length / text.length < 0.1) {
+      return "en";
+    }
+  }
+  return inferred;
+}
+
 export async function suggestRoles(
   resumeText: string,
 ): Promise<RoleSuggestions> {
@@ -66,5 +76,6 @@ export async function suggestRoles(
     prompt: `Résumé:\n"""\n${trimmed}\n"""`,
   });
   object.roles.sort((a, b) => b.matchScore - a.matchScore);
+  object.language = detectPredominantLanguage(resumeText, object.language);
   return object;
 }

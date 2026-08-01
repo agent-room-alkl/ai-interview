@@ -2,6 +2,8 @@
 // Role selection UI. Fetches AI role suggestions with staged loading + retry.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Logo } from "@/components/Logo";
 
 type Role = {
   title: string;
@@ -148,6 +150,12 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
 
   return (
     <div className="safe-px mx-auto max-w-2xl px-4 py-6 sm:p-6">
+      <header className="flex items-center justify-between border-b border-[#17201e]/10 pb-4 mb-6">
+        <Link href="/dashboard" className="inline-flex"><Logo compact /></Link>
+        <Link href="/dashboard" className="text-sm text-[#65736d] hover:opacity-70">
+          ← Dashboard
+        </Link>
+      </header>
       <h1 className="text-xl font-semibold leading-snug sm:text-2xl">
         Pick the role(s) you want to interview for
       </h1>

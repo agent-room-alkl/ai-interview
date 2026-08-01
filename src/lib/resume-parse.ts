@@ -44,6 +44,17 @@ function sectionTitle(line: string): string | null {
   return RESUME_SECTIONS.find((section) => section.pattern.test(line))?.title ?? null;
 }
 
+const SECTION_FORMATS: Record<string, string> = {
+  "Personal profile": "=== 个人简介 / Professional Summary ===",
+  "Education": "=== 教育经历 / Education ===",
+  "Work experience": "=== 工作经历 / Work Experience ===",
+  "Skills": "=== 专业技能 / Skills ===",
+  "Languages": "=== 语言能力 / Languages ===",
+  "Projects": "=== 项目经历 / Projects ===",
+  "Certifications": "=== 证书认证 / Certifications ===",
+  "Achievements": "=== 荣誉成就 / Achievements ==="
+};
+
 /**
  * Turn uploaded/pasted résumé text into the small, editable context used by
  * role matching and both interview agents. This is intentionally deterministic
@@ -65,15 +76,15 @@ export function standardizeResumeText(input: string): string {
   // Collapse repeated lines and excessive blank structure while preserving
   // section headings and useful bullet points for the user to review.
   const unique = lines.filter((line, index) => lines.indexOf(line) === index);
-  const sections: string[] = ["# Resume background"];
+  const sections: string[] = [];
   let activeSection = "Personal profile";
-  sections.push(`## ${activeSection}`);
+  sections.push(SECTION_FORMATS[activeSection]);
   for (const line of unique) {
     const heading = sectionTitle(line);
     if (heading) {
       if (heading !== activeSection) {
         activeSection = heading;
-        sections.push(`\n## ${activeSection}`);
+        sections.push(`\n${SECTION_FORMATS[activeSection]}`);
       }
       continue;
     }

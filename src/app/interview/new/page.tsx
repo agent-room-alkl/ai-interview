@@ -10,7 +10,7 @@ export default async function NewInterviewPage() {
   if (!session?.user) redirect("/login");
   const profile = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { resumeContext: true },
+    select: { resumeContext: true, accessUntil: true, trialUsed: true },
   });
 
   return (
@@ -30,7 +30,11 @@ export default async function NewInterviewPage() {
           target role.
         </p>
         <div className="w-full">
-          <CreateInterviewForm initialResumeText={profile?.resumeContext ?? ""} />
+          <CreateInterviewForm
+            initialResumeText={profile?.resumeContext ?? ""}
+            accessUntil={profile?.accessUntil?.toISOString() ?? null}
+            trialUsed={profile?.trialUsed ?? false}
+          />
         </div>
       </div>
     </main>

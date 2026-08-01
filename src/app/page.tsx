@@ -266,14 +266,22 @@ export default async function Home() {
             Pricing
           </p>
           <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
-            Free to practice now. Pay later when we launch plans.
+            One free 10-minute trial. Then simple one-time packs.
           </h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
-            During early access you can run full voice interviews and coaching
-            without a paid subscription. Signed-in sessions may include a fair
-            time limit so everyone gets a turn. When paid plans arrive, we will
-            show pricing clearly before you upgrade — no surprise charges.
+            New users get one 10-minute practice session. After that, buy access
+            that stacks: <strong className="font-semibold text-[#17201e]">$3 / day</strong>,{" "}
+            <strong className="font-semibold text-[#17201e]">$9 / week</strong>, or{" "}
+            <strong className="font-semibold text-[#17201e]">$19 / month</strong>.
+            While access is active you can run unlimited 10 / 20 / 30 minute sessions —
+            no subscription required.
           </p>
+          <a
+            href="/pricing"
+            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-[#17201e] px-5 py-3 text-sm font-semibold text-[#f6f5f0]"
+          >
+            See pricing
+          </a>
         </section>
 
         <section

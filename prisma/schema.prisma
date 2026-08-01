@@ -11,14 +11,42 @@ datasource db {
 }
 
 model User {
-  id           String      @id // Clerk userId (user_…)
-  email        String      @unique
-  passwordHash String // unused under Clerk — written as "" for NOT NULL compat
-  name         String?
-  resumeContext String?
-  createdAt    DateTime    @default(now())
-  interviews   Interview[]
+  id               String      @id // Clerk userId (user_…)
+  email            String      @unique
+  passwordHash     String // unused under Clerk — written as "" for NOT NULL compat
+  name             String?
+  resumeContext    String?
+  /// Paid practice access expires at this time (UTC). Null = never purchased / expired.
+  accessUntil      DateTime?
+  /// One free 10-minute trial session; set true when the trial interview is created.
+  trialUsed        Boolean     @default(false)
+  stripeCustomerId String?
+  createdAt        DateTime    @default(now())
+  interviews       Interview[]
+  purchases        Purchase[]
 
+  @@schema("ai_interview")
+}
+
+/// One-time practice access pack purchase (day / week / month).
+model Purchase {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pack                  String // day | week | month
+  days                  Int
+  amountCents           Int
+  currency              String    @default("usd")
+  status                String    @default("pending") // pending | paid | failed | refund_requested | refunded
+  stripeCheckoutSession String?   @unique
+  stripePaymentIntent   String?
+  stripeRefundId        String?
+  refundRequestedAt     DateTime?
+  refundedAt            DateTime?
+  createdAt             DateTime  @default(now())
+  paidAt                DateTime?
+
+  @@index([userId])
   @@schema("ai_interview")
 }
 

@@ -66,17 +66,48 @@ export default function TermsPage() {
           </section>
           <section>
             <h2 className="text-lg font-semibold tracking-[-0.03em] text-[#17201e]">
-              5. Free and paid access
+              5. Free trial and paid access packs
             </h2>
             <p className="mt-2">
-              Core practice may be available free during early access. Paid plans,
-              if introduced, will be described before purchase. Time limits or
-              feature gates may apply to free accounts.
+              New accounts receive one free trial session limited to{" "}
+              <strong>10 minutes</strong>. The free trial does not include 20- or
+              30-minute sessions. After the trial is used, you must purchase
+              access to continue.
+            </p>
+            <p className="mt-2">
+              Paid access is sold as one-time (non-subscription) practice packs
+              priced in USD: <strong>$3 for 1 day</strong>,{" "}
+              <strong>$9 for 7 days</strong>, and <strong>$19 for 30 days</strong>.
+              Purchases stack by extending your account&apos;s access end time
+              from the later of &quot;now&quot; or your current end time. While
+              access is active you may start unlimited 10 / 20 / 30 minute
+              practice or interview sessions subject to fair use and service
+              availability.
+            </p>
+            <p className="mt-2">
+              Payments are processed by Stripe. Purchase history (pack, amount,
+              time, status) is shown in your dashboard. Prices do not include
+              any taxes Stripe or local law may collect separately.
             </p>
           </section>
           <section>
             <h2 className="text-lg font-semibold tracking-[-0.03em] text-[#17201e]">
-              6. Disclaimer
+              6. Refunds
+            </h2>
+            <p className="mt-2">
+              You may request a refund for a paid pack within{" "}
+              <strong>24 hours</strong> of the successful payment time shown in
+              your purchase history. Requests after that window are declined by
+              the product automatically. Approved refunds are processed through
+              Stripe; bank posting times vary. When a refund succeeds we remove
+              the corresponding access days from your account (access will not
+              extend beyond what remaining non-refunded packs support). Chargebacks
+              or disputes may result in immediate suspension of access.
+            </p>
+          </section>
+          <section>
+            <h2 className="text-lg font-semibold tracking-[-0.03em] text-[#17201e]">
+              7. Disclaimer
             </h2>
             <p className="mt-2">
               The service is provided &quot;as is.&quot; AI responses may be
@@ -87,11 +118,13 @@ export default function TermsPage() {
           </section>
           <section>
             <h2 className="text-lg font-semibold tracking-[-0.03em] text-[#17201e]">
-              7. Contact
+              8. Contact
             </h2>
             <p className="mt-2">
-              Questions about these terms: reach us via the product support
-              channels listed on the site.
+              Questions about these terms, billing, or refunds: reach us via the
+              product support channels listed on the site. These terms describe
+              product policy and are not a substitute for advice from counsel in
+              your jurisdiction.
             </p>
           </section>
         </div>

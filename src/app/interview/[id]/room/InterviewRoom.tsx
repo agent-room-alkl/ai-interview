@@ -158,6 +158,7 @@ export default function InterviewRoom({
   const speechUnlockNeededRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [pausing, setPausing] = useState(false);
   const [lastQuestion, setLastQuestion] = useState<string>(
     initialTurns.filter((t) => t.speaker === "interviewer").at(-1)?.text ?? "",
   );
@@ -205,6 +206,9 @@ export default function InterviewRoom({
   const expressionLevelRef = useRef<ExpressionLevel>(expressionLevel);
 
   const chatAbortRef = useRef<AbortController | null>(null);
+  // Freeze the visible countdown immediately while the pause request is
+  // leaving the room; the server remains authoritative after navigation.
+  const pauseRequestedRef = useRef(false);
   // Mount effects may run twice under React Strict Mode; never request the
   // opening interviewer turn twice.
   const openingQuestionRequestedRef = useRef(false);
@@ -614,6 +618,8 @@ export default function InterviewRoom({
 
   const handlePause = useCallback(() => {
     if (finishing || leavingRef.current) return;
+    pauseRequestedRef.current = true;
+    setPausing(true);
     leavingRef.current = true;
     setFinishing(true);
     clearSilenceTimer();
@@ -629,6 +635,8 @@ export default function InterviewRoom({
         else throw new Error("pause failed");
       })
       .catch(() => {
+        pauseRequestedRef.current = false;
+        setPausing(false);
         leavingRef.current = false;
         setFinishing(false);
       });
@@ -660,6 +668,7 @@ export default function InterviewRoom({
     let finished = false;
     let timer: number | null = null;
     const update = () => {
+      if (pauseRequestedRef.current) return;
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       setTimeLeft(remaining);
       if (shouldForceCompleteOnZero(remaining, finished)) {
@@ -1475,11 +1484,11 @@ export default function InterviewRoom({
           </button>
           <button
             type="button"
-            disabled={finishing}
+            disabled={finishing || pausing}
             onClick={handlePause}
             className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 text-xs font-semibold text-white disabled:opacity-60"
           >
-            {finishing ? "Pausing…" : "Pause & leave"}
+            {pausing ? "Pausing…" : "Pause & leave"}
           </button>
           <button type="button" disabled={finishing} onClick={handleFinish} className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-800 disabled:opacity-60">End interview</button>
         </div>

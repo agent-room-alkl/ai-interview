@@ -195,6 +195,9 @@ export default function InterviewRoom({
   const expressionLevelRef = useRef<ExpressionLevel>(expressionLevel);
 
   const chatAbortRef = useRef<AbortController | null>(null);
+  // Mount effects may run twice under React Strict Mode; never request the
+  // opening interviewer turn twice.
+  const openingQuestionRequestedRef = useRef(false);
   const leavingRef = useRef(false);
   const mutedRef = useRef(muted);
   const aiSpeakingRef = useRef(aiSpeaking);
@@ -602,6 +605,21 @@ export default function InterviewRoom({
       });
   }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
 
+  const handleTimeExpired = useCallback(() => {
+    if (finishing || leavingRef.current) return;
+    leavingRef.current = true;
+    setFinishing(true);
+    setTimeExpired(true);
+    clearSilenceTimer();
+    clearIdleReminder();
+    stopSpeaking();
+    chatAbortRef.current?.abort();
+    setBusy(false);
+    realtimeRef.current?.close();
+    realtimeRef.current = null;
+    void fetch(`/api/interview/${interviewId}/complete`, { method: "POST" }).catch(() => {});
+  }, [finishing, interviewId, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
+
   // Tick against the server-issued absolute deadline so tab throttling does not
   // make the countdown drift. At zero: stop I/O and force-complete.
   useEffect(() => {
@@ -616,15 +634,14 @@ export default function InterviewRoom({
       setTimeLeft(remaining);
       if (shouldForceCompleteOnZero(remaining, finished)) {
         finished = true;
-        setTimeExpired(true);
         window.clearInterval(timer);
-        window.setTimeout(handleFinish, 400);
+        handleTimeExpired();
       }
     };
     update();
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
-  }, [deadlineAt, handleFinish]);
+  }, [deadlineAt, handleTimeExpired]);
 
   // ---------- Chat (streaming text from an agent) ----------
   const runAgent = useCallback(
@@ -1303,6 +1320,8 @@ export default function InterviewRoom({
     if (roundMeta.latestUser) setLastGradedTranscript(roundMeta.latestUser.text);
 
     if (!hasInterviewer) {
+      if (openingQuestionRequestedRef.current) return;
+      openingQuestionRequestedRef.current = true;
       resumeSpeechPendingRef.current = "__await_next__";
       setSpeechUnlockNeeded(true);
       void runAgent("interviewer", {});
@@ -1439,6 +1458,25 @@ export default function InterviewRoom({
         </div>
       )}
 
+      {timeExpired && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/35 px-4" role="presentation">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="time-expired-title">
+            <h2 id="time-expired-title" className="text-lg font-semibold text-gray-900">Time is up</h2>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              Your interview time has ended. Would you like to return to your practice space or view the report?
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" className="min-h-10 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50" onClick={() => router.push("/dashboard")}>
+                Back to dashboard
+              </button>
+              <button type="button" className="min-h-10 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800" onClick={() => router.push(`/interview/${interviewId}/report`)}>
+                View report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* T-14/T-19: expression level — how elaborate the AI talks (not role
           difficulty). Kept OUTSIDE the scrolling transcript so it stays visible
           at the top; selectable at the start and switchable mid-interview
@@ -1529,8 +1567,10 @@ export default function InterviewRoom({
         const liveUser = `${answerBufferRef.current}${
           interim ? (answerBufferRef.current ? " " : "") + interim : ""
         }`.trim();
-        const latestTrainer = [...messages].reverse().find((m) => m.speaker === "trainer")?.text;
-        const latestUser = [...messages].reverse().find((m) => m.speaker === "user")?.text;
+        const currentQuestionIndex = messages.findLastIndex((m) => m.speaker === "interviewer");
+        const currentTurn = currentQuestionIndex >= 0 ? messages.slice(currentQuestionIndex + 1) : messages;
+        const latestTrainer = [...currentTurn].reverse().find((m) => m.speaker === "trainer")?.text;
+        const latestUser = [...currentTurn].reverse().find((m) => m.speaker === "user")?.text;
         const trainerText =
           clearExchangeUI && !showPassHandoff
             ? mode === "practice"

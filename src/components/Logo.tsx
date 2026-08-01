@@ -15,11 +15,11 @@ export function Logo({
       aria-label="Ainterv.com"
     >
       <span className="text-[#e57b4f]">A</span>
-      <span className="relative inline-flex w-[0.22em] justify-center text-[#17201e]">
+      <span className="relative inline-flex w-[0.22em] h-[1em] leading-none justify-center text-[#17201e]">
         ı
         <span
           aria-hidden="true"
-          className="absolute left-1/2 top-[-0.02em] h-[0.22em] w-[0.22em] -translate-x-1/2 rounded-full bg-[#d7f16a] ring-1 ring-[#17201e]/10"
+          className="absolute left-1/2 top-[0.15em] h-[0.22em] w-[0.22em] -translate-x-1/2 rounded-full bg-[#d7f16a] ring-1 ring-[#17201e]/10"
         />
       </span>
       <span className="text-[#17201e]">nterv.com</span>

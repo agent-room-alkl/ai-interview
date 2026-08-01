@@ -16,6 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AI Interview — Practice with confidence",
   description: "A resume-aware, voice-first AI interview partner for better answers.",
+  icons: { icon: "/favicon.svg" },
 };
 
 export const viewport: Viewport = {

@@ -158,6 +158,10 @@ export default function InterviewRoom({
   const expressionLevelRef = useRef<ExpressionLevel>(expressionLevel);
 
   const chatAbortRef = useRef<AbortController | null>(null);
+  // The mount effect below can be invoked more than once by React's development
+  // Strict Mode. Keep the initial interviewer request idempotent so the opening
+  // question is never fetched/spoken twice.
+  const openingQuestionRequestedRef = useRef(false);
   const leavingRef = useRef(false);
   const mutedRef = useRef(muted);
   const aiSpeakingRef = useRef(aiSpeaking);
@@ -1041,10 +1045,14 @@ export default function InterviewRoom({
     const needsNextQuestion =
       latest?.speaker === "trainer" ||
       (mode === "interview" && latest?.speaker === "user");
-    if (
+    const shouldRequest =
       !initialTurns.some((turn) => turn.speaker === "interviewer") ||
-      needsNextQuestion
+      needsNextQuestion;
+    if (
+      shouldRequest &&
+      !openingQuestionRequestedRef.current
     ) {
+      openingQuestionRequestedRef.current = true;
       void runAgent("interviewer", {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

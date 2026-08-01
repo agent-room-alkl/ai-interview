@@ -694,7 +694,9 @@ export default function InterviewRoom({
         answer?: string;
         replaceLastUserTurn?: boolean;
         coachingStyle?: "compact" | "model";
-      },
+        /** Skip / forced advance — server must ask a new question even if score < pass. */
+        forceNextQuestion?: boolean;
+      } = {},
     ) => {
       if (leavingRef.current) return;
       chatAbortRef.current?.abort();
@@ -848,8 +850,11 @@ export default function InterviewRoom({
 
   // T-12: clear the score gate whenever the candidate starts a fresh answer,
   // and let them advance to the next interviewer question once they've passed.
-  const continueToNextQuestion = useCallback(() => {
-    if (busyRef.current) return;
+  // forceNext: Skip (below-pass or idle) must bypass the practice score gate.
+  const continueToNextQuestion = useCallback((opts?: { forceNext?: boolean }) => {
+    const forceNext = opts?.forceNext === true;
+    // Pass auto-advance waits if busy; Skip aborts in-flight work and proceeds.
+    if (busyRef.current && !forceNext) return;
     if (mode === "interview" && questionsAsked >= questionLimit) {
       void handleFinish();
       return;
@@ -861,10 +866,13 @@ export default function InterviewRoom({
     setLastGradedTranscript("");
     setEditingTranscript(false);
     setTranscriptDraft("");
+    setActiveWritten(null);
     // Hide trainer/answer for the handoff, but keep message history so progress
     // and resume stay on the real question count (not reset to 1).
     setClearExchangeUI(true);
-    void runAgent("interviewer", {});
+    // Drop stale Current question immediately so Skip never looks like a no-op.
+    if (forceNext) setLastQuestion("");
+    void runAgent("interviewer", { forceNextQuestion: forceNext });
   }, [
     handleFinish,
     mode,
@@ -1028,8 +1036,7 @@ export default function InterviewRoom({
 
   // T-01: candidate chooses to move on rather than answer this question.
   const skipQuestion = useCallback(() => {
-    if (busyRef.current) return;
-    continueToNextQuestion();
+    continueToNextQuestion({ forceNext: true });
   }, [continueToNextQuestion]);
 
   const handleUserUtterance = useCallback(
@@ -1602,7 +1609,10 @@ export default function InterviewRoom({
                 <SpeakingIndicator active={interviewerSpeaking} tone="interviewer" />
               </div>
               <div className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
-                {lastQuestion || "Waiting for the first question…"}
+                {lastQuestion ||
+                  (busy || clearExchangeUI
+                    ? "Getting the next question…"
+                    : "Waiting for the first question…")}
               </div>
             </div>
             {/* Middle: Trainer content */}
@@ -1730,7 +1740,7 @@ export default function InterviewRoom({
                 {!busy && (
                   <button
                     type="button"
-                    onClick={continueToNextQuestion}
+                    onClick={() => continueToNextQuestion({ forceNext: true })}
                     className="min-h-9 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:opacity-85"
                   >
                     Skip this question →

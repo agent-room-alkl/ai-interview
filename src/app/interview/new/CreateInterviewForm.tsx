@@ -18,13 +18,16 @@ export function CreateInterviewForm({
   initialResumeText = "",
   accessUntil = null,
   trialUsed = false,
+  initialCandidateName = "",
 }: {
   initialResumeText?: string;
   accessUntil?: string | null;
   trialUsed?: boolean;
+  initialCandidateName?: string;
 }) {
   const [state, formAction, pending] = useActionState(createInterview, initial);
   const [mode, setMode] = useState<"practice" | "interview">("practice");
+  const [candidateName, setCandidateName] = useState(initialCandidateName);
   const [resumeText, setResumeText] = useState(initialResumeText);
   const paid = useMemo(() => hasActiveAccess(accessUntil), [accessUntil]);
   const allowedDurations = paid
@@ -60,6 +63,8 @@ export function CreateInterviewForm({
             <input
               name="candidateName"
               required
+              value={candidateName}
+              onChange={(event) => setCandidateName(event.target.value)}
               placeholder="Your full name"
               className="mt-2 min-h-11 w-full rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3 text-base text-[#17201e] outline-none focus:border-[#17201e] sm:text-sm"
             />

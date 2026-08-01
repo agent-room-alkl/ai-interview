@@ -30,11 +30,12 @@ export default async function NewInterviewPage() {
           target role.
         </p>
         <div className="w-full">
-          <CreateInterviewForm
-            initialResumeText={profile?.resumeContext ?? ""}
-            accessUntil={profile?.accessUntil?.toISOString() ?? null}
-            trialUsed={profile?.trialUsed ?? false}
-          />
+            <CreateInterviewForm
+              initialResumeText={profile?.resumeContext ?? ""}
+              accessUntil={profile?.accessUntil?.toISOString() ?? null}
+              trialUsed={profile?.trialUsed ?? false}
+              initialCandidateName={session.user.name ?? ""}
+            />
         </div>
       </div>
     </main>

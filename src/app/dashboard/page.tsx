@@ -3,6 +3,7 @@ import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Logo } from "@/components/Logo";
 
 type StoredReport = { overallScore?: number };
 
@@ -69,6 +70,7 @@ export default async function DashboardPage() {
       <div className="safe-px mx-auto max-w-7xl px-4 py-8 sm:px-10 sm:py-10 lg:px-16">
         <header className="flex items-start justify-between gap-4">
           <div>
+            <Link href="/" className="inline-flex"><Logo /></Link>
             <p className="text-sm text-[#65736d]">Your progress</p>
             <h1 className="mt-3 text-4xl font-semibold tracking-[-0.07em] sm:text-5xl">
               Hi, {session.user.name ?? "there"}.

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
+import { Logo } from "@/components/Logo";
 
 const features = [
   {
@@ -67,14 +68,8 @@ export default async function Home() {
       <section className="safe-px relative mx-auto max-w-7xl px-4 pb-16 pt-4 sm:px-10 sm:pb-20 sm:pt-6 lg:px-16">
         <div className="pointer-events-none absolute -right-40 -top-32 h-[28rem] w-[28rem] rounded-full bg-[#d9f0e7] blur-3xl" />
         <nav className="relative z-10 flex items-center justify-between gap-3 border-b border-[#17201e]/10 pb-4 sm:pb-5">
-          <Link
-            href="/"
-            className="flex min-w-0 items-center gap-2 font-semibold tracking-[-0.03em] sm:gap-3"
-          >
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#17201e] text-sm text-[#f6f5f0]">
-              ai
-            </span>
-            <span className="truncate text-base sm:text-lg">interview</span>
+          <Link href="/" className="min-w-0">
+            <Logo />
           </Link>
           <div className="flex shrink-0 items-center gap-3 text-sm font-medium leading-none sm:gap-5">
             <a

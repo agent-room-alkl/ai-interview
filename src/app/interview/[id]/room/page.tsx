@@ -5,6 +5,9 @@ import { auth } from "@/lib/auth";
 import InterviewRoom from "./InterviewRoom";
 import PausedInterview from "./PausedInterview";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function RoomPage({
   params,
 }: {

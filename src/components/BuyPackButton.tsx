@@ -24,9 +24,28 @@ export function BuyPackButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pack }),
       });
-      const data = (await res.json()) as { url?: string; error?: string };
-      if (!res.ok || !data.url) {
-        setError(data.error ?? "Could not start checkout.");
+
+      const contentType = res.headers.get("content-type") ?? "";
+      const data = contentType.includes("application/json")
+        ? ((await res.json()) as { url?: string; error?: string })
+        : null;
+
+      if (res.status === 401) {
+        const returnTo =
+          typeof window !== "undefined"
+            ? `${window.location.pathname}${window.location.search}`
+            : "/pricing";
+        window.location.href = `/login?redirect_url=${encodeURIComponent(returnTo)}`;
+        return;
+      }
+
+      if (!res.ok || !data?.url) {
+        setError(
+          data?.error ??
+            (res.status === 503
+              ? "Payments are not configured yet."
+              : `Could not start checkout (${res.status}).`),
+        );
         setPending(false);
         return;
       }

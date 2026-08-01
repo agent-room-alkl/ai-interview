@@ -47,6 +47,11 @@ export async function POST(
   }
   const agent: "interviewer" | "trainer" = body.agent;
 
+  // Formal interview mode is interviewer-only — no trainer/coach turns.
+  if (agent === "trainer" && interview.mode === "interview") {
+    return new Response("trainer_disabled_in_interview_mode", { status: 400 });
+  }
+
   if (interview.status === "completed") {
     return new Response("interview_completed", { status: 409 });
   }

@@ -1054,7 +1054,9 @@ export default function InterviewRoom({
     const second = idleReminderCountRef.current >= 2;
     const who: Speaker = mode === "practice" ? "trainer" : "interviewer";
     const text = second
-      ? "Still there? There's no rush. When you're ready, just start speaking — or use Repeat to hear the question again, Hint for a nudge, or Skip to move on."
+      ? mode === "practice"
+        ? "Still there? There's no rush. When you're ready, just start speaking — or use Repeat to hear the question again, Hint for a nudge, or Skip to move on."
+        : "Still there? There's no rush. When you're ready, just start speaking — or use Repeat to hear the question again, or Skip to move on."
       : "Take your time — whenever you're ready, go ahead and answer. I'm still listening.";
     if (second) setShowIdleOptions(true);
     setMessages((m) => [...m, { speaker: who, text }]);
@@ -1142,7 +1144,8 @@ export default function InterviewRoom({
 
   // T-01: ask the interviewer for a small hint — does not advance the question.
   const requestHint = useCallback(() => {
-    if (busyRef.current) return;
+    // Hints are practice/coaching only — formal interview stays interviewer-only.
+    if (busyRef.current || mode !== "practice") return;
     resetIdleReminders();
     const hint =
       "Start with one specific example. Briefly explain the situation, what you did, and the result.";
@@ -1153,7 +1156,7 @@ export default function InterviewRoom({
     setSpeakingAgent("trainer");
     enqueueSpeech(hint);
     finalizeSpeech();
-  }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
+  }, [enqueueSpeech, finalizeSpeech, mode, resetIdleReminders]);
 
   // T-01: candidate chooses to move on rather than answer this question.
   const skipQuestion = useCallback(() => {
@@ -1705,8 +1708,17 @@ export default function InterviewRoom({
 
       {/* T-28: quiet-room / headphones tip — ambient noise is the #1 false-capture source. */}
       <p className="mt-1 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] leading-4 text-amber-900">
-        Find a quiet place to practice. Headphones recommended so the mic doesn&apos;t
-        pick up the AI or room noise.
+        {mode === "interview" ? (
+          <>
+            Formal interview mode — answer each question, then the interviewer moves on.
+            Headphones recommended so the mic doesn&apos;t pick up the AI or room noise.
+          </>
+        ) : (
+          <>
+            Find a quiet place to practice. Headphones recommended so the mic doesn&apos;t
+            pick up the AI or room noise.
+          </>
+        )}
       </p>
 
       {!supported && (
@@ -1734,24 +1746,23 @@ export default function InterviewRoom({
         const currentTurn = currentQuestionIndex >= 0 ? messages.slice(currentQuestionIndex + 1) : messages;
         const latestTrainer = [...currentTurn].reverse().find((m) => m.speaker === "trainer")?.text;
         const latestUser = [...currentTurn].reverse().find((m) => m.speaker === "user")?.text;
+        const showTrainer = mode === "practice";
         const trainerText =
           clearExchangeUI && !showPassHandoff
-            ? mode === "practice"
-              ? "Waiting for your answer…"
-              : "Observing"
-            : latestTrainer || (mode === "practice" ? "Waiting for your answer…" : "Observing");
+            ? "Waiting for your answer…"
+            : latestTrainer || "Waiting for your answer…";
         const answerText = userSpeaking
           ? liveUser || (recording ? "🎙 Listening…" : "…")
           : clearExchangeUI && !showPassHandoff
             ? "Your answer will appear here"
             : latestUser || "Your answer will appear here";
         const interviewerSpeaking = aiSpeaking && speakingAgent === "interviewer";
-        const trainerSpeaking = aiSpeaking && speakingAgent === "trainer";
+        const trainerSpeaking = showTrainer && aiSpeaking && speakingAgent === "trainer";
         return (
           <section
-            className={`mt-2 grid min-h-0 grid-cols-1 gap-2 lg:auto-rows-fr lg:grid-cols-3 ${
-              activeWritten ? "shrink-0" : "shrink-0 lg:flex-1"
-            }`}
+            className={`mt-2 grid min-h-0 grid-cols-1 gap-2 lg:auto-rows-fr ${
+              showTrainer ? "lg:grid-cols-3" : "lg:grid-cols-2"
+            } ${activeWritten ? "shrink-0" : "shrink-0 lg:flex-1"}`}
             aria-label="Current interview exchange"
           >
             {/* Top: Current Question */}
@@ -1769,28 +1780,30 @@ export default function InterviewRoom({
                     : "Waiting for the first question…")}
               </div>
             </div>
-            {/* Middle: Trainer content */}
-            <div className={`flex min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${activeWritten ? "max-h-[16vh] lg:max-h-[18vh]" : "max-h-[30vh] lg:max-h-none"} ${trainerSpeaking ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                  Trainer{trainerSpeaking ? " · speaking" : ""}
-                </p>
-                <SpeakingIndicator active={trainerSpeaking} tone="trainer" />
+            {/* Middle: Trainer content (practice only) */}
+            {showTrainer ? (
+              <div className={`flex min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${activeWritten ? "max-h-[16vh] lg:max-h-[18vh]" : "max-h-[30vh] lg:max-h-none"} ${trainerSpeaking ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                    Trainer{trainerSpeaking ? " · speaking" : ""}
+                  </p>
+                  <SpeakingIndicator active={trainerSpeaking} tone="trainer" />
+                </div>
+                <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
+                  {renderRich(trainerText)}
+                  {lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
+                  {showPassHandoff && lastScore != null && lastScore >= PASS_THRESHOLD ? (
+                    <div
+                      role="status"
+                      className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-900"
+                    >
+                      <span aria-hidden="true">✓</span>
+                      Pass — next question in 3s
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
-                {renderRich(trainerText)}
-                {mode === "practice" && lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
-                {showPassHandoff && lastScore != null && lastScore >= PASS_THRESHOLD ? (
-                  <div
-                    role="status"
-                    className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-900"
-                  >
-                    <span aria-hidden="true">✓</span>
-                    Pass — next question in 3s
-                  </div>
-                ) : null}
-              </div>
-            </div>
+            ) : null}
             {/* Bottom: Your answer */}
             <div className={`flex min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${activeWritten ? "max-h-[16vh] lg:max-h-[18vh]" : "max-h-[30vh] lg:max-h-none"} ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
               <div className="flex items-center justify-between gap-2">
@@ -2003,13 +2016,15 @@ export default function InterviewRoom({
             >
               🔁 Repeat question
             </button>
-            <button
-              type="button"
-              onClick={requestHint}
-              className="min-h-9 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900"
-            >
-              💡 Hint
-            </button>
+            {mode === "practice" ? (
+              <button
+                type="button"
+                onClick={requestHint}
+                className="min-h-9 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900"
+              >
+                💡 Hint
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={skipQuestion}

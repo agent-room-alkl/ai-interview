@@ -31,9 +31,9 @@ export function Logo({
   }
 
   return (
-    <div className="flex flex-col items-start gap-1.5">
+    <div className="flex flex-col items-start gap-1">
       {logoText}
-      <span className="whitespace-nowrap text-[10px] font-semibold leading-tight tracking-[0.02em] uppercase text-[#65736d] sm:text-[11px]">
+      <span className="whitespace-nowrap text-[10px] font-semibold leading-tight tracking-[0.02em] uppercase text-[#65736d] sm:text-[10px]">
         Make your next answer your best one.
       </span>
     </div>

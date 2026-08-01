@@ -141,9 +141,6 @@ export default function InterviewRoom({
   const [lastScore, setLastScore] = useState<number | null>(null);
   // T-34 / T-20: keep the graded transcript so the candidate can edit ASR text
   // and re-score without re-speaking.
-  const [lastGradedTranscript, setLastGradedTranscript] = useState("");
-  const [editingTranscript, setEditingTranscript] = useState(false);
-  const [transcriptDraft, setTranscriptDraft] = useState("");
   // T-23: deadline is authoritative server state and cannot be reset by
   // refreshing, clearing browser storage, or opening another tab.
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -212,7 +209,6 @@ export default function InterviewRoom({
   const [showIdleOptions, setShowIdleOptions] = useState(false);
   // T-03: the meeting-room layout leads with speaker tiles + a live caption;
   // the full turn-by-turn transcript is tucked into a collapsible panel.
-  const [showTranscript, setShowTranscript] = useState(false);
   // Ref indirection so the mount-only realtime STT callbacks reset reminders
   // without capturing a stale closure.
   const resetIdleRef = useRef<() => void>(() => {});
@@ -662,31 +658,8 @@ export default function InterviewRoom({
     }
     resetIdleReminders();
     setLastScore(null);
-    setLastGradedTranscript("");
-    setEditingTranscript(false);
-    setTranscriptDraft("");
     void runAgent("interviewer", {});
   }, [handleFinish, mode, questionLimit, questionsAsked, runAgent, resetIdleReminders]);
-
-  const prepareRetry = useCallback(() => {
-    setLastScore(null);
-    setEditingTranscript(false);
-    resetIdleReminders();
-    const prompt = "Take your time. Try the same question again when you're ready.";
-    setMessages((current) => [...current, { speaker: "trainer", text: prompt }]);
-    setSpeakingAgent("trainer");
-    enqueueSpeech(prompt);
-    finalizeSpeech();
-  }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
-
-  const showModelAnswer = useCallback(() => {
-    if (!lastGradedTranscript || busyRef.current) return;
-    void runAgent("trainer", {
-      question: lastQuestionRef.current,
-      answer: lastGradedTranscript,
-      coachingStyle: "model",
-    });
-  }, [lastGradedTranscript, runAgent]);
 
   // T-01: 2-minute-silence nudge. Fires only when the candidate has NOT begun
   // answering (guarded by the arming effect below and re-checked here via refs).
@@ -755,8 +728,6 @@ export default function InterviewRoom({
         return;
       }
       setLastScore(null); // T-12: reset the gate for this new attempt
-      setEditingTranscript(false);
-      setTranscriptDraft("");
       // T-18: empty / noise / filler-only capture — don't score it, just show
       // what was heard and ask the candidate to say it again.
       if (isTrivialAnswer(t)) {
@@ -774,8 +745,6 @@ export default function InterviewRoom({
         return;
       }
       if (mode === "practice") {
-        // T-34: remember what was graded so Edit transcript can fix ASR.
-        setLastGradedTranscript(t);
         // Trainer coaches the latest answer to the last interviewer question.
         // Read the question from a ref so the mount-time recognition handler
         // always coaches against the CURRENT question, not a stale one.
@@ -790,25 +759,6 @@ export default function InterviewRoom({
     },
     [mode, repeatQuestion, runAgent, enqueueSpeech, finalizeSpeech, resetIdleReminders],
   );
-
-  const openEditTranscript = useCallback(() => {
-    setTranscriptDraft(lastGradedTranscript);
-    setEditingTranscript(true);
-  }, [lastGradedTranscript]);
-
-  const submitEditedTranscript = useCallback(() => {
-    const next = transcriptDraft.trim();
-    if (!next || busyRef.current) return;
-    setEditingTranscript(false);
-    setLastScore(null);
-    setLastGradedTranscript(next);
-    void runAgent("trainer", {
-      question: lastQuestionRef.current,
-      answer: next,
-      userText: next,
-      replaceLastUserTurn: true,
-    });
-  }, [transcriptDraft, runAgent]);
 
   // Submit whatever the candidate has said so far (idle-triggered or via the
   // explicit "Done" button). Coaching only fires here, never mid-answer.
@@ -1239,238 +1189,51 @@ export default function InterviewRoom({
         ))}
       </div>
 
-      {lastQuestion ? (
-        <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 sm:px-5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
-            Current question
-          </p>
-          <p className="mt-1 text-sm leading-6 text-indigo-950 sm:text-[15px] sm:leading-7">
-            {lastQuestion}
-          </p>
+      {(() => {
+        const userSpeaking = recording || interim || hasPendingAnswer;
+        const liveUser = `${answerBufferRef.current}${
+          interim ? (answerBufferRef.current ? " " : "") + interim : ""
+        }`.trim();
+        const latestTrainer = [...messages].reverse().find((m) => m.speaker === "trainer")?.text;
+        const latestUser = [...messages].reverse().find((m) => m.speaker === "user")?.text;
+        const trainerText = latestTrainer || (mode === "practice" ? "Waiting for your answer…" : "Observing");
+        const answerText = userSpeaking
+          ? liveUser || (recording ? "🎙 Listening…" : "…")
+          : latestUser || "Your answer will appear here";
+        return (
+          <section className="mt-3 grid gap-2 lg:grid-cols-3" aria-label="Current interview exchange">
+            <div className="min-h-[7.5rem] rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 sm:min-h-32 sm:px-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">Current question</p>
+              <p className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-words text-sm leading-5 text-indigo-950 sm:text-[15px] sm:leading-6">
+                {lastQuestion || "Waiting for the first question…"}
+              </p>
+            </div>
+            <div className={`min-h-[7.5rem] rounded-xl border px-3 py-3 sm:min-h-32 sm:px-4 ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Trainer {aiSpeaking && speakingAgent === "trainer" ? "· speaking…" : ""}</p>
+              <p aria-live="polite" className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-words text-sm leading-5 text-gray-900 sm:text-[15px] sm:leading-6">
+                {renderRich(trainerText)}
+              </p>
+              {mode === "practice" && lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
+            </div>
+            <div className={`min-h-[7.5rem] rounded-xl border px-3 py-3 sm:min-h-32 sm:px-4 ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Your answer</p>
+              <p aria-live="polite" className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-words text-sm leading-5 text-gray-900 sm:text-[15px] sm:leading-6">
+                {renderRich(answerText)}
+              </p>
+            </div>
+          </section>
+        );
+      })()}
+      {activeWritten ? (
+        <div className="mt-2">
+          <QuestionCard
+            interviewId={interviewId}
+            question={activeWritten}
+            disabled={busy}
+            onSubmit={submitWritten}
+          />
         </div>
       ) : null}
-
-      {/* T-03: large live caption of whoever holds the floor right now — the
-          candidate's live transcript while they speak, otherwise the most recent
-          interviewer/trainer turn. The turn-by-turn log moves into the
-          collapsible transcript below. */}
-      <div className="mt-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 sm:px-6 sm:py-5">
-        {(() => {
-          const userSpeaking = recording || interim || hasPendingAnswer;
-          const liveUser = `${answerBufferRef.current}${
-            interim ? (answerBufferRef.current ? " " : "") + interim : ""
-          }`.trim();
-          const lastAi =
-            [...messages]
-              .reverse()
-              .find((m) => m.speaker === "interviewer" || m.speaker === "trainer") ?? null;
-          const who = userSpeaking
-            ? "You"
-            : lastAi?.speaker === "trainer"
-              ? "Trainer"
-              : "Interviewer";
-          const body = userSpeaking
-            ? liveUser || (recording ? "🎙 Listening…" : "…")
-            : lastAi?.text || (connecting ? "Connecting live voice…" : "Waiting to begin…");
-          return (
-            <>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                {who}
-                {aiSpeaking && !userSpeaking ? " · speaking…" : ""}
-              </p>
-              <div
-                aria-live="polite"
-                className="mt-1.5 whitespace-pre-wrap break-words text-base leading-7 text-gray-900 sm:text-lg sm:leading-8"
-              >
-                {body ? renderRich(body) : "…"}
-              </div>
-            </>
-          );
-        })()}
-      </div>
-
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-1 py-4 pb-10 sm:space-y-5 sm:py-6 sm:pb-12">
-        {/* T-03: full turn-by-turn transcript, collapsed by default. */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowTranscript((v) => !v)}
-            aria-expanded={showTranscript}
-            className="inline-flex min-h-9 items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700"
-          >
-            {showTranscript
-              ? "Hide full transcript ▴"
-              : `Show full transcript ▾ (${messages.length})`}
-          </button>
-        </div>
-        {showTranscript && messages.map((m, i) => {
-          const isUser = m.speaker === "user";
-          const aiActive =
-            aiSpeaking &&
-            speakingAgent === m.speaker &&
-            (m.speaker === "interviewer" || m.speaker === "trainer");
-          const isLastOfSpeaker =
-            messages.findLastIndex((x) => x.speaker === m.speaker) === i;
-          const showWave = Boolean(aiActive && isLastOfSpeaker);
-          return (
-            <div
-              key={i}
-              className={`flex items-end gap-2.5 sm:gap-3 ${isUser ? "justify-end" : "justify-start"}`}
-            >
-              {!isUser ? (
-                <div className="flex flex-col items-center gap-1">
-                  <SpeakerAvatar
-                    role={m.speaker}
-                    speaking={showWave}
-                  />
-                  <SpeakingIndicator active={showWave} tone="ai" />
-                </div>
-              ) : null}
-              <div
-                className={`max-w-[min(92%,36rem)] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-6 sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 sm:text-[15px] sm:leading-7 lg:max-w-[min(72%,48rem)] ${
-                  m.speaker === "user"
-                    ? "bg-indigo-600 text-white"
-                    : m.speaker === "trainer"
-                      ? "bg-amber-100 text-amber-900"
-                      : "bg-gray-100 text-gray-900"
-                }`}
-              >
-                <div className="mb-0.5 flex items-center gap-2 text-[10px] uppercase tracking-wide opacity-60">
-                  <span>{m.speaker}</span>
-                </div>
-                {m.text ? renderRich(m.text) : "…"}
-              </div>
-              {isUser ? (
-                <div className="flex flex-col items-center gap-1">
-                  <SpeakerAvatar
-                    role="user"
-                    name={candidateName}
-                    imageUrl={candidateImageUrl}
-                  />
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-        {activeWritten ? (
-          <div className="flex justify-start">
-            <QuestionCard
-              key={activeWritten.id}
-              interviewId={interviewId}
-              question={activeWritten}
-              disabled={busy}
-              onSubmit={(utterance) => submitWritten(utterance)}
-            />
-          </div>
-        ) : null}
-        {mode === "practice" && lastScore != null && !activeWritten ? (
-          <div className="flex flex-col items-start gap-2">
-            <div
-              className="max-w-[min(92%,36rem)] rounded-2xl bg-amber-100 px-3.5 py-2.5 text-sm text-amber-900 sm:max-w-[min(78%,42rem)] sm:px-5 sm:py-3 lg:max-w-[min(72%,48rem)]"
-            >
-              Score: <span className="font-semibold">{lastScore}/100</span>
-              {" — use the coach's next focus, or choose an action below."}
-            </div>
-            {lastGradedTranscript ? (
-              <div className="max-w-[min(92%,36rem)] rounded-2xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 sm:max-w-[min(78%,42rem)] sm:px-5">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                  Graded transcript
-                </p>
-                <p className="mt-1 whitespace-pre-wrap break-words leading-6">
-                  {lastGradedTranscript}
-                </p>
-              </div>
-            ) : null}
-            <p className="max-w-[min(92%,36rem)] text-xs text-gray-400 sm:max-w-[min(78%,42rem)]">
-              Review the transcript, retry the answer, see a model answer, or skip to the next question.
-            </p>
-            {editingTranscript ? (
-              <div className="flex w-full max-w-[min(92%,36rem)] flex-col gap-2 sm:max-w-[min(78%,42rem)]">
-                <label
-                  htmlFor="edit-transcript"
-                  className="text-xs font-semibold uppercase tracking-wide text-gray-600"
-                >
-                  Edit transcript
-                </label>
-                <textarea
-                  id="edit-transcript"
-                  value={transcriptDraft}
-                  onChange={(e) => setTranscriptDraft(e.target.value)}
-                  rows={4}
-                  disabled={busy}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm leading-6 text-gray-900 shadow-sm"
-                />
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy || !transcriptDraft.trim()}
-                    onClick={submitEditedTranscript}
-                    className="min-h-10 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    Re-score edited transcript
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setEditingTranscript(false)}
-                    className="min-h-10 rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-1 flex flex-wrap gap-3">
-                {lastGradedTranscript && !busy ? (
-                  <button
-                    type="button"
-                    onClick={openEditTranscript}
-                    className="min-h-10 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900"
-                  >
-                    Edit transcript
-                  </button>
-                ) : null}
-                {!busy ? (
-                  <button
-                    type="button"
-                    onClick={prepareRetry}
-                    className="min-h-10 rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900"
-                  >
-                    Try again
-                  </button>
-                ) : null}
-                {lastGradedTranscript && !busy ? (
-                  <button
-                    type="button"
-                    onClick={showModelAnswer}
-                    className="min-h-10 rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900"
-                  >
-                    See model answer
-                  </button>
-                ) : null}
-                {!busy ? (
-                  <button
-                    type="button"
-                    onClick={continueToNextQuestion}
-                    className="min-h-10 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800"
-                  >
-                    Skip question
-                  </button>
-                ) : null}
-                {false && !busy ? (
-                  <button
-                    type="button"
-                    onClick={continueToNextQuestion}
-                    className="min-h-10 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
-                  >
-                    Continue interview →
-                  </button>
-                ) : null}
-              </div>
-            )}
-          </div>
-        ) : null}
-      </div>
 
       {/* T-03: bottom control bar — mic status, reminder options, and the core
           meeting controls (mute, Done, Leave) integrated in one place. */}

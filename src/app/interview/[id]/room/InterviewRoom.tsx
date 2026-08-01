@@ -73,6 +73,21 @@ function isTrivialAnswer(text: string): boolean {
   return false;
 }
 
+function isRepeatRequest(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .replace(/[.,!?;:…'"—-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (normalized.length > 80) return false;
+  return (
+    /\brepeat\b/.test(normalized) ||
+    /say (that|it) again/.test(normalized) ||
+    /what was the question/.test(normalized)
+  );
+}
+
 export default function InterviewRoom({
   interviewId,
   mode,
@@ -733,6 +748,12 @@ export default function InterviewRoom({
       const t = text.trim();
       if (!t || busyRef.current) return;
       resetIdleReminders(); // T-01: they answered — end the silence-nudge cycle
+      if (isRepeatRequest(t)) {
+        // A spoken request to hear the question again is a control command, not
+        // an answer. Replay locally so it never reaches the trainer/scorer.
+        repeatQuestion();
+        return;
+      }
       setLastScore(null); // T-12: reset the gate for this new attempt
       setEditingTranscript(false);
       setTranscriptDraft("");
@@ -767,7 +788,7 @@ export default function InterviewRoom({
         void runAgent("interviewer", { userText: t });
       }
     },
-    [mode, runAgent, enqueueSpeech, finalizeSpeech, resetIdleReminders],
+    [mode, repeatQuestion, runAgent, enqueueSpeech, finalizeSpeech, resetIdleReminders],
   );
 
   const openEditTranscript = useCallback(() => {
@@ -1589,7 +1610,7 @@ function TypeFallback({
 }) {
   const [val, setVal] = useState("");
   return (
-    <div className="safe-pb shrink-0 border-t border-gray-200 bg-[#f6f5f0] pt-3">
+    <div className="safe-pb mt-3 shrink-0 border-t border-gray-200 bg-[#f6f5f0] pt-3">
       {writtenQuestions.length > 0 && (
         <div className="mb-3">
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">

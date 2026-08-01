@@ -22,9 +22,19 @@ export async function POST(
   const remainingSeconds = interview.deadlineAt
     ? Math.max(0, Math.ceil((interview.deadlineAt.getTime() - Date.now()) / 1000))
     : interview.durationMinutes * 60;
-  await prisma.interview.update({
-    where: { id },
+  const paused = await prisma.interview.updateMany({
+    where: { id, status: { not: "completed" }, pausedAt: null },
     data: { pausedAt: new Date(), pausedRemainingSeconds: remainingSeconds, deadlineAt: null },
   });
+  if (paused.count === 0) {
+    const current = await prisma.interview.findUnique({ where: { id } });
+    if (current?.status === "completed") {
+      return NextResponse.json({ error: "completed" }, { status: 409 });
+    }
+    if (current?.pausedAt) {
+      return NextResponse.json({ ok: true, paused: true, remainingSeconds: current.pausedRemainingSeconds ?? 0 });
+    }
+    return NextResponse.json({ error: "pause_conflict" }, { status: 409 });
+  }
   return NextResponse.json({ ok: true, paused: true, remainingSeconds });
 }

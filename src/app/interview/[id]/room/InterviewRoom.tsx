@@ -686,7 +686,7 @@ export default function InterviewRoom({
   }, [resetIdleReminders]);
 
   const handleFinish = useCallback(() => {
-    if (finishing || leavingRef.current) return;
+    if (finishing || leavingRef.current || pauseRequestedRef.current) return;
     leavingRef.current = true;
     trackEvent("interview_completed", { interview_id: interviewId, reason: "finish" });
     setFinishing(true);
@@ -714,7 +714,7 @@ export default function InterviewRoom({
   }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
 
   const handlePause = useCallback(() => {
-    if (finishing || leavingRef.current) return;
+    if (finishing || leavingRef.current || pauseRequestedRef.current) return;
     pauseRequestedRef.current = true;
     setPausing(true);
     leavingRef.current = true;
@@ -764,7 +764,7 @@ export default function InterviewRoom({
   }, [handlePause, interviewId]);
 
   const handleTimeExpired = useCallback(() => {
-    if (finishing || leavingRef.current) return;
+    if (finishing || leavingRef.current || pauseRequestedRef.current) return;
     leavingRef.current = true;
     trackEvent("interview_completed", { interview_id: interviewId, reason: "timeout" });
     setFinishing(true);
@@ -793,7 +793,7 @@ export default function InterviewRoom({
       if (pauseRequestedRef.current) return;
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       setTimeLeft(remaining);
-      if (shouldForceCompleteOnZero(remaining, finished)) {
+      if (shouldForceCompleteOnZero(remaining, finished) && !pauseRequestedRef.current) {
         finished = true;
         if (timer) window.clearInterval(timer);
         handleTimeExpired();

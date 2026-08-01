@@ -116,6 +116,51 @@ export function languageName(code?: string): string {
   return LANGUAGE_NAMES[c] ?? LANGUAGE_NAMES[c.split("-")[0]] ?? code ?? "English";
 }
 
+/** Stable, localized cues that the room can speak verbatim after coaching. */
+const COACHING_CUES: Record<string, { model: string; next: string }> = {
+  en: {
+    model: "Now try saying it again in your own words.",
+    next: "Choose: try again, see a model answer, skip, or continue.",
+  },
+  zh: {
+    model: "现在请用你自己的话再说一遍。",
+    next: "请选择：再试一次、查看示范答案、跳过，或继续。",
+  },
+  es: {
+    model: "Ahora intenta decirlo de nuevo con tus propias palabras.",
+    next: "Elige: inténtalo de nuevo, ver una respuesta modelo, omitir o continuar.",
+  },
+  fr: {
+    model: "Maintenant, essayez de le dire à nouveau avec vos propres mots.",
+    next: "Choisissez : réessayer, voir une réponse modèle, passer ou continuer.",
+  },
+  de: {
+    model: "Versuche es jetzt noch einmal mit deinen eigenen Worten zu sagen.",
+    next: "Wähle: erneut versuchen, Musterantwort ansehen, überspringen oder fortfahren.",
+  },
+  ja: {
+    model: "では、今度は自分の言葉でもう一度言ってみましょう。",
+    next: "選択してください：もう一度試す、模範回答を見る、スキップ、または続ける。",
+  },
+  ko: {
+    model: "이제 자신의 말로 다시 말해 보세요.",
+    next: "선택하세요: 다시 시도하기, 모범 답변 보기, 건너뛰기 또는 계속하기.",
+  },
+  pt: {
+    model: "Agora tente dizer isso novamente com suas próprias palavras.",
+    next: "Escolha: tentar novamente, ver uma resposta modelo, pular ou continuar.",
+  },
+  hi: {
+    model: "अब इसे अपने शब्दों में फिर से कहने की कोशिश करें।",
+    next: "चुनें: फिर से कोशिश करें, उदाहरण उत्तर देखें, छोड़ें या जारी रखें।",
+  },
+};
+
+export function coachingCues(code?: string): { model: string; next: string } {
+  const c = (code ?? "en").toLowerCase().split("-")[0];
+  return COACHING_CUES[c] ?? COACHING_CUES.en;
+}
+
 function languageDirective(c: EngineContext): string {
   const name = languageName(c.language);
   return `IMPORTANT: Conduct this entire session in ${name}. Every question, follow-up, and piece of feedback you write must be in ${name}, matching the candidate's résumé language. Do not switch languages unless the candidate does.`;
@@ -173,15 +218,16 @@ export function trainerSystemPrompt(
   c: EngineContext,
   includeModelAnswer = false,
 ): string {
+  const cues = coachingCues(c.language);
   if (includeModelAnswer) {
-    return "You are the interview coach. Give a strong first-person model answer to the current interview question using the candidate's real experience. Output exactly **Practice answer:** followed by the answer, then end with exactly: \"Now try saying it again in your own words.\" Do not score, ask a new question, or discuss anything unrelated to the interview.\n" +
+    return "You are the interview coach. Give a strong first-person model answer to the current interview question using the candidate's real experience. Output exactly **Practice answer:** followed by the answer, then end with exactly: \"" + cues.model + "\" Do not score, ask a new question, or discuss anything unrelated to the interview. Keep the Practice answer and closing cue in the selected interview language.\n" +
       languageDirective(c) + "\n" + expressionDirective(c.expressionLevel) + "\n" + sharedContext(c);
   }
   const compactCoachDirective = includeModelAnswer
     ? `MODEL-ANSWER MODE:
 - Output only "**Practice answer:**" followed by a strong first-person answer
   tailored to the current question and the candidate's evident experience.
-- End with exactly: "Now try saying it again in your own words."
+- End with exactly: "${cues.model}"
 - These rules override the legacy output structure below.`
     : `IMPORTANT COMPACT-COACH OVERRIDE:
 - The spoken feedback must be brief. Output only Score, What worked, Next focus,
@@ -189,7 +235,7 @@ export function trainerSystemPrompt(
 - "**Next focus:**" is one short actionable sentence.
 - "**Coach note:**" is one short structured observation telling the interviewer
   what to probe next.
-- End with exactly: "Choose: try again, see a model answer, skip, or continue."
+- End with exactly: "${cues.next}"
 - These compact-coach rules override any longer legacy output structure below.`;
   return `You are an expert interview COACH ("Trainer") helping "${c.candidateName}" prepare for a ${rolesLabel(c)} interview.
 You are given the interviewer's most recent QUESTION and the candidate's ANSWER.
@@ -212,7 +258,7 @@ Return, in EXACTLY this markdown structure and nothing else:
 **Weak spots:** 1–3 short lines. For each line, quote the exact incorrect or unclear snippet from the ANSWER, label it grammar, content, clarity, or transcript uncertainty, and give a concise correction. If the transcript is too garbled to quote confidently, say Transcript uncertainty and do not blame the candidate for grammar.
 **Practice answer:** a rewritten, stronger version the candidate can say aloud — first person, natural to speak. This part MAY be as detailed and complex as needed to model a great answer.
 
-Then end with exactly: "Now try saying it again in your own words."
+Then end with exactly: "${cues.next}"
 
 SCORING RUBRIC (T-27) — use the FULL 0–100 range. Do NOT habitually land on round mid-band scores like 45/60/70.
 - 0–29: Empty, off-topic, or only filler / noise.

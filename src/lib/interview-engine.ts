@@ -18,9 +18,20 @@ export function interviewQuestionLimit(durationMinutes: number): number {
 }
 
 function writtenTestPlan(durationMinutes: number): string {
-  if (durationMinutes <= 10) return "At most 1 written test, and it is optional/random; it is fine to use none.";
-  if (durationMinutes <= 20) return "Use at most 1 written test.";
-  return "Use at most 2 written tests.";
+  if (durationMinutes <= 10) return "No scheduled written test is required for this short session.";
+  if (durationMinutes <= 20) return "The second main question MUST be a written test.";
+  return "The second and third main questions MUST be written tests.";
+}
+
+/** Deterministic written-test placement requested by the product flow. */
+export function scheduledWrittenQuestionId(
+  durationMinutes: number,
+  questionNumber: number,
+): string | null {
+  if (durationMinutes <= 10) return null;
+  if (questionNumber === 2) return "wq-single-gil";
+  if (durationMinutes > 20 && questionNumber === 3) return "wq-multi-complexity";
+  return null;
 }
 
 /** T-27: documented score bands for calibration (prompt + smoke). */
@@ -462,12 +473,19 @@ export function buildInterviewerMessages(
           "[SYSTEM] The candidate is still practicing the current question (not yet passed). Do NOT ask a new question. Wait — the Trainer handles coaching.",
       });
     } else {
+      const nextQuestionNumber = rounds.filter((round) => round.q.trim()).length + 1;
+      const scheduledWrittenId = scheduledWrittenQuestionId(
+        c.durationMinutes ?? 20,
+        nextQuestionNumber,
+      );
       messages.push({
         role: "user",
-        content: nextQuestionNudge(c.candidateName, {
-          skipped: forceNext,
-          previousQuestion: latest.q,
-        }),
+        content: scheduledWrittenId
+          ? `[SYSTEM] Ask the next interview question now for ${c.candidateName}. This is main question ${nextQuestionNumber}; it MUST be a written test. Say one brief spoken lead-in, then on a new line output exactly [[ASK_WRITTEN:${scheduledWrittenId}]]. Do not ask a normal spoken question on this turn, do not reveal the answer, and do not re-ask the previous question.`
+          : nextQuestionNudge(c.candidateName, {
+              skipped: forceNext,
+              previousQuestion: latest.q,
+            }),
       });
     }
   } else if (forceNext) {

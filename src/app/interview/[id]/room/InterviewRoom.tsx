@@ -14,6 +14,7 @@ import {
 } from "@/lib/written-questions";
 import {
   interviewQuestionLimit,
+  scheduledWrittenQuestionId,
   PASS_THRESHOLD,
   coachingCues,
   type ExpressionLevel,
@@ -171,7 +172,7 @@ export default function InterviewRoom({
       (turn) => turn.speaker === "interviewer" && turn.text.startsWith("[Written "),
     ).length,
   );
-  const writtenLimit = durationMinutes <= 10 ? 1 : durationMinutes <= 20 ? 1 : 2;
+  const writtenLimit = durationMinutes <= 10 ? 0 : durationMinutes <= 20 ? 1 : 2;
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
   // Visible Pass handoff after a practice score of PASS_THRESHOLD+ (silent — no trainer TTS).
@@ -778,7 +779,14 @@ export default function InterviewRoom({
           // T-13: interviewer decided to pose a written test question.
           const wm = buffer.match(WRITTEN_MARKER);
           const id = wm ? /ASK_WRITTEN:([a-z0-9_-]+)/i.exec(wm[0])?.[1] : null;
-          const q = id ? SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id) : null;
+          // The model is instructed to emit the marker on scheduled rounds;
+          // use the same deterministic fallback if it misses the marker so a
+          // 20/30-minute session cannot silently skip its planned test.
+          const questionNumber = messages.filter((m) => m.speaker === "interviewer").length + 1;
+          const scheduledId = scheduledWrittenQuestionId(durationMinutes, questionNumber);
+          const q = SAMPLE_WRITTEN_QUESTIONS.find(
+            (x) => x.id === (id ?? scheduledId),
+          ) ?? null;
           if (q && writtenCountRef.current < writtenLimit) {
             writtenCountRef.current += 1;
             setUsedWrittenIds((prev) =>

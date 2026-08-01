@@ -43,3 +43,5 @@ prisma/           # Schema + migrations
 ## Environment
 
 See `.env.example` for `DATABASE_URL`, Clerk keys (`NEXT_PUBLIC_CLERK_*` / `CLERK_SECRET_KEY`), and `AI_GATEWAY_API_KEY` / `OPENAI_API_KEY`.
+
+For Google Analytics 4, add `NEXT_PUBLIC_GA_MEASUREMENT_ID` (for example `G-7JPB75VRKY`) to the Vercel project environment. The app stores first-touch UTM parameters in the browser and reports page views plus `sign_up`, `begin_checkout`, `purchase`, `coupon_applied`, `interview_created`, `interview_started`, and `interview_completed` events.

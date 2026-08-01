@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Logo } from "@/components/Logo";
+import { trackEvent } from "@/lib/analytics";
 import {
   SAMPLE_WRITTEN_QUESTIONS,
   type WrittenQuestion,
@@ -200,6 +201,9 @@ export default function InterviewRoom({
   initialTurns: Msg[];
 }) {
   const router = useRouter();
+  useEffect(() => {
+    trackEvent("interview_started", { interview_id: interviewId, mode });
+  }, [interviewId, mode]);
   // Strip control markers from bubbles immediately so bfcache/re-entry never
   // paints [[ASK_WRITTEN:…]] into the room UI.
   const [messages, setMessages] = useState<Msg[]>(() =>
@@ -684,6 +688,7 @@ export default function InterviewRoom({
   const handleFinish = useCallback(() => {
     if (finishing || leavingRef.current) return;
     leavingRef.current = true;
+    trackEvent("interview_completed", { interview_id: interviewId, reason: "finish" });
     setFinishing(true);
     setTimeExpired(true);
     clearSilenceTimer();
@@ -761,6 +766,7 @@ export default function InterviewRoom({
   const handleTimeExpired = useCallback(() => {
     if (finishing || leavingRef.current) return;
     leavingRef.current = true;
+    trackEvent("interview_completed", { interview_id: interviewId, reason: "timeout" });
     setFinishing(true);
     setTimeExpired(true);
     clearSilenceTimer();

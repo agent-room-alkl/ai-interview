@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
+import { trackEvent } from "@/lib/analytics";
 
 type Role = {
   title: string;
@@ -45,6 +46,9 @@ type StageId = (typeof ANALYSIS_STAGES)[number]["id"];
 
 export default function RoleSelector({ interviewId }: { interviewId: string }) {
   const router = useRouter();
+  useEffect(() => {
+    trackEvent("interview_created", { interview_id: interviewId });
+  }, [interviewId]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

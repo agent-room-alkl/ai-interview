@@ -216,6 +216,28 @@ export default function InterviewRoom({
     }
     return SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === wm[1]) ?? null;
   });
+  // Browser Back can restore the route from the app router's cache without
+  // remounting this client component. Reconcile the persisted interviewer turn
+  // after mount as well, so a written card never degrades to a raw marker in
+  // Current question when the user re-enters the room.
+  useEffect(() => {
+    let lastInterviewerIdx = -1;
+    for (let i = initialTurns.length - 1; i >= 0; i -= 1) {
+      if (initialTurns[i].speaker === "interviewer") {
+        lastInterviewerIdx = i;
+        break;
+      }
+    }
+    if (lastInterviewerIdx < 0) return;
+    const raw = initialTurns[lastInterviewerIdx].text;
+    const wm = raw.match(/\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/i);
+    if (!wm) return;
+    if (initialTurns.slice(lastInterviewerIdx + 1).some((turn) => turn.speaker === "user")) return;
+    const q = SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === wm[1]);
+    if (!q) return;
+    setActiveWritten((current) => (current?.id === q.id ? current : q));
+    setLastQuestion(spokenWrittenText(q));
+  }, [initialTurns]);
   const [, setUsedWrittenIds] = useState<string[]>([]);
   const writtenCountRef = useRef(
     initialTurns.filter(

@@ -47,6 +47,33 @@ function renderRich(text: string) {
 const WRITTEN_MARKER = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/gi;
 const stripMarkers = (s: string) =>
   s.replace(WRITTEN_MARKER, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+
+/** TTS + Current-question text for a written item (prompt + choice labels). */
+function spokenWrittenText(q: WrittenQuestion): string {
+  const parts = [q.prompt.trim()];
+  if (q.options?.length) {
+    const labels = q.options.map((o, i) => {
+      const letter = String.fromCharCode(65 + i);
+      return `${letter}. ${o.label}`;
+    });
+    parts.push(labels.join(". "));
+  }
+  return parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+}
+
+/** Resolve interviewer turn text into what should be spoken / shown for Repeat. */
+function resolveInterviewerSpeakText(raw: string): string {
+  const wm = raw.match(/\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/i);
+  if (wm) {
+    const q = SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === wm[1]);
+    if (q) {
+      const lead = stripMarkers(raw);
+      const body = spokenWrittenText(q);
+      return [lead, body].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    }
+  }
+  return stripMarkers(raw);
+}
 // Parse "**Score:** NN/100" (or plain "Score: NN/100") out of a trainer message.
 function parseScore(text: string): number | null {
   const normalized = text.replace(/／/g, "/").replace(/：/g, ":");
@@ -166,7 +193,8 @@ export default function InterviewRoom({
     const wm = raw.match(/\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/i);
     if (wm) {
       const q = SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === wm[1]);
-      if (q) return q.prompt;
+      // Prefer prompt body for Current question; lead-in alone hid the real ask.
+      if (q) return spokenWrittenText(q);
     }
     return stripMarkers(raw);
   });
@@ -802,17 +830,20 @@ export default function InterviewRoom({
           const wm = buffer.match(WRITTEN_MARKER);
           const id = wm ? /ASK_WRITTEN:([a-z0-9_-]+)/i.exec(wm[0])?.[1] : null;
           const q = id ? SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id) : null;
+          // speak any trailing lead-in (minus control markers)
+          const tail = stripMarkers(buffer.slice(spokenUpTo));
+          if (tail) enqueueSpeech(tail);
           if (q && writtenCountRef.current < writtenLimit) {
             writtenCountRef.current += 1;
             setUsedWrittenIds((prev) =>
               prev.includes(q.id) ? prev : [...prev, q.id],
             );
-            setLastQuestion(q.prompt);
+            const spoken = spokenWrittenText(q);
+            setLastQuestion(spoken);
             setActiveWritten(q);
+            // Catalog prompt was never in the stream — speak it after the lead-in.
+            if (spoken) enqueueSpeech(spoken);
           }
-          // speak any trailing text (minus control markers)
-          const tail = stripMarkers(buffer.slice(spokenUpTo));
-          if (tail) enqueueSpeech(tail);
           finalizeSpeech();
         } else if (
           agent === "trainer" &&
@@ -1191,8 +1222,9 @@ export default function InterviewRoom({
     if (busyRef.current || writtenCountRef.current >= writtenLimit) return;
     writtenCountRef.current += 1;
     setUsedWrittenIds((prev) => (prev.includes(q.id) ? prev : [...prev, q.id]));
+    const spoken = spokenWrittenText(q);
     setActiveWritten(q);
-    setLastQuestion(q.prompt);
+    setLastQuestion(spoken);
     setMessages((m) => [
       ...m,
       {
@@ -1200,7 +1232,8 @@ export default function InterviewRoom({
         text: `[Written ${q.kind}] ${q.prompt}`,
       },
     ]);
-  }, [writtenLimit]);
+    if (spoken) speakInterviewerNow(spoken, { force: true });
+  }, [speakInterviewerNow, writtenLimit]);
 
   const submitWritten = useCallback(
     (utterance: string) => {
@@ -1430,11 +1463,13 @@ export default function InterviewRoom({
     }
 
     // Open or failed round: interviewer starts from the current question and speaks it.
-    resumeSpeechPendingRef.current = currentQuestion;
+    // Written turns: speak catalog prompt (not only the brief lead-in / marker).
+    const speakText = resolveInterviewerSpeakText(currentQuestion);
+    resumeSpeechPendingRef.current = speakText;
     setSpeechUnlockNeeded(true);
     const timer = window.setTimeout(() => {
       if (resumeSpeechDoneRef.current) return;
-      speakInterviewerNow(currentQuestion, { force: true });
+      speakInterviewerNow(speakText, { force: true });
     }, 350);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps

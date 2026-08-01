@@ -205,9 +205,14 @@ export async function POST(
       !interviewerTurnIsWritten(text)
     ) {
       const id = pickScheduledWrittenId(ctx);
+      const lang = (ctx.language ?? "").toLowerCase();
+      const fallbackLead =
+        lang.startsWith("zh")
+          ? `请完成第 ${writtenSlot} 题的书面练习，题目会显示在屏幕上，我也会读给你听。`
+          : `Please complete this short written exercise for question ${writtenSlot}. I'll read the prompt aloud as well.`;
       const lead =
         text.replace(/\[\[ASK_WRITTEN:[a-z0-9_-]+\]\]/gi, "").trim() ||
-        `Please complete this short written exercise for question ${writtenSlot}.`;
+        fallbackLead;
       text = `${lead}\n\n[[ASK_WRITTEN:${id}]]`;
     }
 

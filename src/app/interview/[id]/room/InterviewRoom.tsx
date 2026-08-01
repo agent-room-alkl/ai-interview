@@ -1102,6 +1102,23 @@ export default function InterviewRoom({
               <span className="text-sm">{Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}</span>
             </div>
           )}
+          <button
+            type="button"
+            onClick={toggleMute}
+            className={`min-h-9 rounded-lg px-3 py-1.5 text-xs font-medium ${
+              muted ? "bg-red-600 text-white" : "border border-gray-300 bg-white text-gray-800"
+            }`}
+          >
+            {muted ? "Unmute" : "Mute"}
+          </button>
+          <button
+            type="button"
+            disabled={finishing}
+            onClick={handleFinish}
+            className="min-h-9 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+          >
+            {finishing ? "Finishing…" : "Leave"}
+          </button>
         </div>
       </header>
 
@@ -1173,16 +1190,16 @@ export default function InterviewRoom({
           ? liveUser || (recording ? "🎙 Listening…" : "…")
           : latestUser || "Your answer will appear here";
         return (
-          <section className="mt-2 grid min-h-0 shrink-0 grid-cols-1 gap-2 lg:grid-cols-3" aria-label="Current interview exchange">
+          <section className="mt-2 grid min-h-0 shrink-0 grid-cols-1 gap-2 lg:flex-1 lg:auto-rows-fr lg:grid-cols-3" aria-label="Current interview exchange">
             {/* Top: Current Question */}
-            <div className="flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 sm:px-4">
+            <div className="flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 sm:px-4 lg:max-h-none">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">Current question</p>
               <div className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
                 {lastQuestion || "Waiting for the first question…"}
               </div>
             </div>
             {/* Middle: Trainer content */}
-            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Trainer {aiSpeaking && speakingAgent === "trainer" ? "· speaking…" : ""}</p>
               <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(trainerText)}
@@ -1190,7 +1207,7 @@ export default function InterviewRoom({
               </div>
             </div>
             {/* Bottom: Your answer */}
-            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
+            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Your answer</p>
               <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(answerText)}
@@ -1384,17 +1401,9 @@ export default function InterviewRoom({
           </div>
         ) : null}
 
-        {/* T-03: core meeting controls — mute, submit answer, leave. */}
-        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3">
-          <button
-            type="button"
-            onClick={toggleMute}
-            className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium ${
-              muted ? "bg-red-600 text-white" : "border border-gray-300 text-gray-800"
-            }`}
-          >
-            {muted ? "Unmute" : "Mute"}
-          </button>
+        {/* Keep any optional submit action separate from the exchange; primary
+            meeting controls live in the header to preserve vertical space. */}
+        <div className="mt-2 flex flex-wrap items-center gap-3">
           {false && hasPendingAnswer && !busy ? (
             <button
               type="button"
@@ -1404,14 +1413,6 @@ export default function InterviewRoom({
               Done — submit ↵
             </button>
           ) : null}
-          <button
-            type="button"
-            disabled={finishing}
-            onClick={handleFinish}
-            className="ml-auto min-h-10 rounded-xl bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {finishing ? "Finishing…" : "Leave"}
-          </button>
         </div>
       </div>
 

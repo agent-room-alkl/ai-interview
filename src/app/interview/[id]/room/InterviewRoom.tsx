@@ -131,6 +131,7 @@ export default function InterviewRoom({
   const [, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
+  const [passVisible, setPassVisible] = useState(false);
   // Legacy transcript editing helpers remain wired to the retry flow.
   const [lastGradedTranscript, setLastGradedTranscript] = useState("");
   const [editingTranscript, setEditingTranscript] = useState(false);
@@ -542,6 +543,8 @@ export default function InterviewRoom({
       setBusy(true);
       cancelSpeakRef.current = false;
       setSpeakingAgent(agent);
+      const deferPracticeTrainerSpeech =
+        agent === "trainer" && mode === "practice" && opts.coachingStyle !== "model";
       const idx = messages.length + (opts.userText ? 1 : 0);
       // optimistic: append user turn locally
       if (opts.userText) {
@@ -584,7 +587,7 @@ export default function InterviewRoom({
           });
           // speak newly-completed sentences for low latency (markers never spoken)
           const match = buffer.slice(spokenUpTo).match(/[^.!?]+[.!?]+/g);
-          if (match) {
+          if (match && !deferPracticeTrainerSpeech) {
             for (const sentence of match) {
               const clean = stripMarkers(sentence);
               if (clean) enqueueSpeech(clean);
@@ -592,9 +595,19 @@ export default function InterviewRoom({
             spokenUpTo += match.join("").length;
           }
         }
-        // speak any trailing text (minus control markers)
-        const tail = stripMarkers(buffer.slice(spokenUpTo));
-        if (tail) enqueueSpeech(tail);
+        const score = deferPracticeTrainerSpeech ? parseScore(buffer) : null;
+        // Practice feedback is only spoken after the score is known. A passed
+        // round should be shown visually, not read aloud.
+        if (deferPracticeTrainerSpeech) {
+          if (score == null || score < 75) {
+            const feedback = stripMarkers(buffer);
+            if (feedback) enqueueSpeech(feedback);
+          }
+        } else {
+          // speak any trailing text (minus control markers)
+          const tail = stripMarkers(buffer.slice(spokenUpTo));
+          if (tail) enqueueSpeech(tail);
+        }
         finalizeSpeech();
         // Ensure the final rendered bubble carries no control markers.
         setMessages((m) => {
@@ -624,7 +637,8 @@ export default function InterviewRoom({
           // P-02: a "See model answer" response (coachingStyle="model") has no
           // Score line — don't let parseScore()===null wipe the existing score
           // and hide the Try again / Skip / Continue controls.
-          setLastScore(parseScore(buffer));
+          setLastScore(score);
+          setPassVisible(false);
         }
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") return;
@@ -655,6 +669,7 @@ export default function InterviewRoom({
     }
     resetIdleReminders();
     setLastScore(null);
+    setPassVisible(false);
     setLastGradedTranscript("");
     setEditingTranscript(false);
     setTranscriptDraft("");
@@ -672,7 +687,8 @@ export default function InterviewRoom({
       return;
     }
     const timer = window.setTimeout(() => {
-      continueToNextQuestion();
+      setPassVisible(true);
+      window.setTimeout(() => continueToNextQuestion(), 600);
     }, 3000);
     return () => window.clearTimeout(timer);
   }, [activeWritten, busy, continueToNextQuestion, lastScore, mode]);
@@ -1256,9 +1272,15 @@ export default function InterviewRoom({
                 <div className="text-xs text-amber-900 font-medium">
                   Your Score: <span className="text-sm font-bold text-amber-800">{lastScore}/100</span>
                 </div>
-                <div className="text-[10px] text-gray-500">
-                  Review the feedback, then choose an action:
-                </div>
+                {passVisible ? (
+                  <div className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold tracking-wide text-white">
+                    PASS
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-gray-500">
+                    Review the feedback, then choose an action:
+                  </div>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 {lastGradedTranscript && !busy && (

@@ -48,11 +48,10 @@ export async function POST(
         },
         turn_detection: {
           type: "server_vad",
-          threshold: 0.5,
+          threshold: 0.6, // raised from 0.5 to reduce sensitivity to ambient noise
           prefix_padding_ms: 300,
-          // Longer silence before a turn is closed, so a brief mid-answer pause
-          // doesn't chop the utterance (pairs with the generous SUBMIT_IDLE_MS).
-          silence_duration_ms: 800,
+          // Extended silence duration to 3500ms so pauses/thinking gaps do not cause premature turn completions.
+          silence_duration_ms: 3500,
         },
       },
     },

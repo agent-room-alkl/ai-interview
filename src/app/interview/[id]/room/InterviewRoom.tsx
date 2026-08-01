@@ -14,7 +14,7 @@ import {
   SAMPLE_WRITTEN_QUESTIONS,
   type WrittenQuestion,
 } from "@/lib/written-questions";
-import type { ExpressionLevel } from "@/lib/interview-engine";
+import { languageName, type ExpressionLevel } from "@/lib/interview-engine";
 import { QuestionCard } from "./QuestionCard";
 import {
   connectRealtimeSTT,
@@ -95,6 +95,7 @@ export default function InterviewRoom({
   targetRole,
   durationMinutes,
   deadlineAt,
+  language,
   initialTurns,
 }: {
   interviewId: string;
@@ -110,6 +111,7 @@ export default function InterviewRoom({
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialTurns);
+  const interviewLanguage = languageName(language);
   const questionLimit = durationMinutes <= 10 ? 5 : durationMinutes <= 20 ? 8 : 12;
   const questionsAsked = messages.filter((m) => m.speaker === "interviewer").length;
   const progress = Math.min(questionsAsked, questionLimit);
@@ -236,9 +238,12 @@ export default function InterviewRoom({
   // Text is still batched into ~sentence chunks to keep request count low, but
   // each chunk's audio is streamed and scheduled onto one continuous timeline,
   // so playback starts at the first bytes and never stops between chunks.
-  const TTS_MIN_CHUNK = 80;
+  // Avoid cutting a normal first question at an arbitrary 80-character
+  // boundary. That created a network gap between TTS requests and sounded
+  // like the interviewer stuttered at the start of the room.
+  const TTS_MIN_CHUNK = 320;
   const SAMPLE_RATE = 24000; // OpenAI pcm output rate
-  const SCHED_LEAD = 0.12; // seconds of head-start when (re)starting from idle
+  const SCHED_LEAD = 0.35; // seconds of head-start when (re)starting from idle
   const BLOCK_BYTES = 9600; // ~200 ms of 24 kHz 16-bit mono before scheduling
 
   const clearTtsFlushTimer = useCallback(() => {
@@ -874,8 +879,6 @@ export default function InterviewRoom({
       },
       onSpeechStart: () => {
         if (cancelled || mutedRef.current) return;
-        // Barge-in: the candidate started talking — cut the AI's TTS.
-        if (aiSpeakingRef.current) stopSpeakingRef.current();
         clearSilenceTimer();
         // T-01: they've started — cancel any pending silence nudge and reset the
         // cycle so a later pause starts fresh.
@@ -884,6 +887,11 @@ export default function InterviewRoom({
       },
       onInterim: (text) => {
         if (cancelled || mutedRef.current) return;
+        // Wait for actual recognized speech before interrupting TTS. Some
+        // browsers emit speech_started for the AI audio leaking through the
+        // mic before echo cancellation has settled, which used to cut off the
+        // opening question after a fraction of a second.
+        if (aiSpeakingRef.current && text.trim()) stopSpeakingRef.current();
         setInterim(text);
         setRecording(true);
       },
@@ -997,9 +1005,13 @@ export default function InterviewRoom({
     });
   };
 
-  // Interviewer asks the first question on load (interview mode, empty transcript).
+  // Interviewer asks the first question on load when no interviewer turn exists.
+  // A resumed room can already contain a user/trainer turn, so checking only
+  // messages.length would leave it stuck after a failed first request.
   useEffect(() => {
-    if (messages.length === 0) void runAgent("interviewer", {});
+    if (!initialTurns.some((turn) => turn.speaker === "interviewer")) {
+      void runAgent("interviewer", {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1038,6 +1050,9 @@ export default function InterviewRoom({
           <Link href="/dashboard" className="mb-1 inline-flex"><Logo compact /></Link>
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
             {mode === "practice" ? "Practice room" : "Interview room"}
+          </p>
+          <p className="mt-0.5 text-[11px] font-medium text-gray-500">
+            Language · {interviewLanguage}
           </p>
           <h1 className="mt-1 truncate text-lg font-semibold tracking-[-0.03em] sm:text-2xl">
             {targetRole}

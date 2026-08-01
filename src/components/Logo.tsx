@@ -9,7 +9,7 @@ export function Logo({
 }) {
   const logoText = (
     <span
-      className={`inline-flex items-baseline font-semibold tracking-[-0.07em] ${
+      className={`inline-flex whitespace-nowrap items-baseline font-semibold tracking-[-0.07em] ${
         compact ? "text-lg sm:text-xl" : "text-2xl sm:text-3xl"
       }`}
       aria-label="Ainterv.com"

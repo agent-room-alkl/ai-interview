@@ -9,7 +9,7 @@ export function Logo({
 }) {
   const logoText = (
     <span
-      className={`inline-flex items-baseline font-semibold tracking-[-0.07em] ${
+      className={`inline-flex whitespace-nowrap items-baseline font-semibold tracking-[-0.07em] ${
         compact ? "text-lg sm:text-xl" : "text-2xl sm:text-3xl"
       }`}
       aria-label="Ainterv.com"
@@ -31,10 +31,10 @@ export function Logo({
   }
 
   return (
-    <div className="flex flex-col items-start gap-0.5">
+    <div className="flex flex-col items-start gap-1">
       {logoText}
-      <span className="text-[9px] font-semibold tracking-[0.03em] uppercase text-[#65736d] sm:text-[10px]">
-        Answer your best one.
+      <span className="whitespace-nowrap text-[10px] font-semibold leading-tight tracking-[0.02em] uppercase text-[#65736d] sm:text-[10px]">
+        Make your next answer your best one.
       </span>
     </div>
   );

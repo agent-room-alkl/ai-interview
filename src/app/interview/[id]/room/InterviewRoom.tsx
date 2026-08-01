@@ -3,18 +3,16 @@
 // segmenting → MediaRecorder → server STT (OpenAI), plus streaming TTS and mute.
 // This replaced the browser Web Speech API, whose mobile behaviour was
 // unreliable (no raw audio, no echo control, duplicated/echoed finals).
-// T-26: suggested industry / role questions as tappable chips.
 // Speaking over the AI stops its TTS (barge-in) and is captured as the answer.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { suggestedQuestionsForRole } from "@/lib/suggested-questions";
 import { Logo } from "@/components/Logo";
 import {
   SAMPLE_WRITTEN_QUESTIONS,
   type WrittenQuestion,
 } from "@/lib/written-questions";
-import { languageName, type ExpressionLevel } from "@/lib/interview-engine";
+import { type ExpressionLevel } from "@/lib/interview-engine";
 import { QuestionCard } from "./QuestionCard";
 import {
   connectRealtimeSTT,
@@ -91,27 +89,20 @@ function isRepeatRequest(text: string): boolean {
 export default function InterviewRoom({
   interviewId,
   mode,
-  candidateName,
   targetRole,
   durationMinutes,
   deadlineAt,
-  language,
   initialTurns,
 }: {
   interviewId: string;
   mode: "practice" | "interview";
-  candidateName: string;
-  candidateImageUrl?: string | null;
   targetRole: string;
   durationMinutes: number;
   deadlineAt: string | null;
-  // Interview language is applied server-side (STT/TTS) from the stored record.
-  language?: string;
   initialTurns: Msg[];
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialTurns);
-  const interviewLanguage = languageName(language);
   const questionLimit = durationMinutes <= 10 ? 5 : durationMinutes <= 20 ? 8 : 12;
   const questionsAsked = messages.filter((m) => m.speaker === "interviewer").length;
   const progress = Math.min(questionsAsked, questionLimit);
@@ -667,6 +658,9 @@ export default function InterviewRoom({
     setLastGradedTranscript("");
     setEditingTranscript(false);
     setTranscriptDraft("");
+    // Keep the passed round visible during the three-second handoff, then
+    // clear its Trainer feedback and answer before the next question arrives.
+    setMessages([]);
     void runAgent("interviewer", {});
   }, [handleFinish, mode, questionLimit, questionsAsked, runAgent, resetIdleReminders]);
 
@@ -857,40 +851,6 @@ export default function InterviewRoom({
   useEffect(() => {
     submitAnswerRef.current = submitBufferedAnswer;
   }, [submitBufferedAnswer]);
-
-  const suggestions = useMemo(
-    () => suggestedQuestionsForRole(targetRole),
-    [targetRole],
-  );
-  const [usedSuggestionIds, setUsedSuggestionIds] = useState<string[]>([]);
-
-  const askSuggested = useCallback(
-    async (id: string, question: string) => {
-      if (busyRef.current) return;
-      setUsedSuggestionIds((prev) =>
-        prev.includes(id) ? prev : [...prev, id],
-      );
-      setBusy(true);
-      cancelSpeakRef.current = false;
-      setSpeakingAgent("interviewer");
-      setMessages((m) => [...m, { speaker: "interviewer", text: question }]);
-      setLastQuestion(question);
-      enqueueSpeech(question);
-      finalizeSpeech();
-      try {
-        await fetch(`/api/interview/${interviewId}/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agent: "interviewer", presetQuestion: question }),
-        });
-      } catch {
-        /* local bubble already shown */
-      } finally {
-        setBusy(false);
-      }
-    },
-    [interviewId, enqueueSpeech, finalizeSpeech],
-  );
 
   const openWrittenQuestion = useCallback((q: WrittenQuestion) => {
     if (busyRef.current) return;
@@ -1114,26 +1074,10 @@ export default function InterviewRoom({
     <div className="safe-pt safe-px mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-hidden px-3 sm:px-6 lg:max-w-7xl lg:px-10">
       <header className="flex shrink-0 flex-col gap-2 border-b border-gray-200 pb-2 pt-1 sm:flex-row sm:items-end sm:justify-between sm:pb-3">
         <div className="min-w-0">
-          <Link href="/dashboard" className="mb-1 inline-flex"><Logo compact /></Link>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
-            {mode === "practice" ? "Practice room" : "Interview room"}
-          </p>
-          <p className="mt-0.5 text-[11px] font-medium text-gray-500">
-            Language · {interviewLanguage}
-          </p>
+          <Link href="/dashboard" className="mb-1 inline-flex"><Logo compact showTagline /></Link>
           <h1 className="mt-1 truncate text-lg font-semibold tracking-[-0.03em] sm:text-2xl">
             {targetRole}
           </h1>
-          <p className="mt-0.5 truncate text-xs text-gray-500 sm:text-sm">
-            {candidateName} ·{" "}
-            {aiSpeaking
-              ? "AI speaking…"
-              : listening && !muted
-                ? "listening…"
-                : muted
-                  ? "muted"
-                  : "idle"}
-          </p>
           <div className="mt-2 w-full max-w-sm" aria-label={`Question progress: ${progress} of ${questionLimit}`}>
             <div className="mb-1 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-gray-500">
               <span>Question progress</span><span>{progress}/{questionLimit}</span>
@@ -1157,6 +1101,23 @@ export default function InterviewRoom({
               <span className="text-sm">{Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}</span>
             </div>
           )}
+          <button
+            type="button"
+            onClick={toggleMute}
+            className={`min-h-9 rounded-lg px-3 py-1.5 text-xs font-medium ${
+              muted ? "bg-red-600 text-white" : "border border-gray-300 bg-white text-gray-800"
+            }`}
+          >
+            {muted ? "Unmute" : "Mute"}
+          </button>
+          <button
+            type="button"
+            disabled={finishing}
+            onClick={handleFinish}
+            className="min-h-9 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+          >
+            {finishing ? "Finishing…" : "Leave"}
+          </button>
         </div>
       </header>
 
@@ -1228,16 +1189,16 @@ export default function InterviewRoom({
           ? liveUser || (recording ? "🎙 Listening…" : "…")
           : latestUser || "Your answer will appear here";
         return (
-          <section className="mt-2 grid min-h-0 shrink-0 grid-cols-1 gap-2 lg:grid-cols-3" aria-label="Current interview exchange">
+          <section className="mt-2 grid min-h-0 shrink-0 grid-cols-1 gap-2 lg:flex-1 lg:auto-rows-fr lg:grid-cols-3" aria-label="Current interview exchange">
             {/* Top: Current Question */}
-            <div className="flex max-h-[25vh] min-h-0 flex-col overflow-y-auto rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 sm:px-4">
+            <div className="flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 sm:px-4 lg:max-h-none">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">Current question</p>
               <div className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
                 {lastQuestion || "Waiting for the first question…"}
               </div>
             </div>
             {/* Middle: Trainer content */}
-            <div className={`flex max-h-[25vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Trainer {aiSpeaking && speakingAgent === "trainer" ? "· speaking…" : ""}</p>
               <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(trainerText)}
@@ -1245,7 +1206,7 @@ export default function InterviewRoom({
               </div>
             </div>
             {/* Bottom: Your answer */}
-            <div className={`flex max-h-[25vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
+            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Your answer</p>
               <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(answerText)}
@@ -1439,17 +1400,9 @@ export default function InterviewRoom({
           </div>
         ) : null}
 
-        {/* T-03: core meeting controls — mute, submit answer, leave. */}
-        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3">
-          <button
-            type="button"
-            onClick={toggleMute}
-            className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium ${
-              muted ? "bg-red-600 text-white" : "border border-gray-300 text-gray-800"
-            }`}
-          >
-            {muted ? "Unmute" : "Mute"}
-          </button>
+        {/* Keep any optional submit action separate from the exchange; primary
+            meeting controls live in the header to preserve vertical space. */}
+        <div className="mt-2 flex flex-wrap items-center gap-3">
           {false && hasPendingAnswer && !busy ? (
             <button
               type="button"
@@ -1459,14 +1412,6 @@ export default function InterviewRoom({
               Done — submit ↵
             </button>
           ) : null}
-          <button
-            type="button"
-            disabled={finishing}
-            onClick={handleFinish}
-            className="ml-auto min-h-10 rounded-xl bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {finishing ? "Finishing…" : "Leave"}
-          </button>
         </div>
       </div>
 
@@ -1474,8 +1419,6 @@ export default function InterviewRoom({
         onSend={handleUserUtterance}
         disabled={busy}
         mode={mode}
-        suggestions={suggestions.filter((s) => !usedSuggestionIds.includes(s.id))}
-        onSuggest={(id, q) => void askSuggested(id, q)}
         writtenQuestions={[]}
         onWritten={openWrittenQuestion}
       />
@@ -1487,16 +1430,12 @@ function TypeFallback({
   onSend,
   disabled,
   mode,
-  suggestions,
-  onSuggest,
   writtenQuestions,
   onWritten,
 }: {
   onSend: (t: string) => void;
   disabled: boolean;
   mode: string;
-  suggestions: { id: string; label: string; question: string }[];
-  onSuggest: (id: string, question: string) => void;
   writtenQuestions: WrittenQuestion[];
   onWritten: (q: WrittenQuestion) => void;
 }) {
@@ -1525,27 +1464,6 @@ function TypeFallback({
                     : q.kind === "multi_choice"
                       ? "Multi-choice"
                       : "Single choice"}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {suggestions.length > 0 && (
-        <div className="mb-3">
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">
-            Suggested questions
-          </p>
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {suggestions.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                disabled={disabled}
-                title={s.question}
-                onClick={() => onSuggest(s.id, s.question)}
-                className="min-h-10 shrink-0 rounded-full border border-[#17201e]/15 bg-white px-3.5 py-2 text-left text-xs font-medium text-[#17201e] disabled:opacity-40"
-              >
-                {s.label}
               </button>
             ))}
           </div>

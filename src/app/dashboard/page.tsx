@@ -188,7 +188,17 @@ export default async function DashboardPage() {
             {interviews.slice(0, 6).map((interview) => {
               const score = readScore(interview.turns.find((turn) => turn.speaker === "report")?.text);
               return (
-                <Link key={interview.id} href={score !== null ? `/interview/${interview.id}/report` : `/interview/${interview.id}/roles`} className="flex items-center justify-between gap-4 px-4 py-4 transition-colors hover:bg-white/70 sm:px-5">
+                <Link
+                  key={interview.id}
+                  href={
+                    score !== null
+                      ? `/interview/${interview.id}/report`
+                      : interview.targetRole
+                        ? `/interview/${interview.id}/room`
+                        : `/interview/${interview.id}/roles`
+                  }
+                  className="flex items-center justify-between gap-4 px-4 py-4 transition-colors hover:bg-white/70 sm:px-5"
+                >
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold">{interview.targetRole ?? "Role selection in progress"}</span>
                     <span className="mt-1 block text-xs text-[#65736d]">{new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(interview.createdAt)} · {interview.mode === "practice" ? "Practice" : "Interview"}</span>

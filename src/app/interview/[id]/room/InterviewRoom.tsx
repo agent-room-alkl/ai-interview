@@ -504,6 +504,20 @@ export default function InterviewRoom({
     }, 1200);
   }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
 
+  const handleTimeExpired = useCallback(() => {
+    if (finishing || leavingRef.current) return;
+    leavingRef.current = true;
+    setFinishing(true);
+    setTimeExpired(true);
+    clearSilenceTimer();
+    clearIdleReminder();
+    stopSpeaking();
+    chatAbortRef.current?.abort();
+    setBusy(false);
+    realtimeRef.current?.close();
+    realtimeRef.current = null;
+  }, [finishing, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
+
   // Tick against the server-issued absolute deadline so tab throttling does not
   // make the countdown drift.
   useEffect(() => {
@@ -518,15 +532,14 @@ export default function InterviewRoom({
       setTimeLeft(remaining);
       if (remaining === 0 && mode === "interview" && !finished) {
         finished = true;
-        setTimeExpired(true);
         window.clearInterval(timer);
-        window.setTimeout(handleFinish, 1000);
+        handleTimeExpired();
       }
     };
     update();
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
-  }, [deadlineAt, handleFinish, mode]);
+  }, [deadlineAt, handleTimeExpired, mode]);
 
   // ---------- Chat (streaming text from an agent) ----------
   const runAgent = useCallback(
@@ -1148,6 +1161,40 @@ export default function InterviewRoom({
       {timeExpired && (
         <div role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
           Time limit reached — finishing this interview safely.
+        </div>
+      )}
+
+      {timeExpired && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/35 px-4" role="presentation">
+          <div
+            className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="time-expired-title"
+          >
+            <h2 id="time-expired-title" className="text-lg font-semibold text-gray-900">
+              Time is up
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              Your interview time has ended. Would you like to return to your practice space or view the report?
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="min-h-10 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+                onClick={() => router.push("/dashboard")}
+              >
+                Back to dashboard
+              </button>
+              <button
+                type="button"
+                className="min-h-10 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                onClick={() => router.push(`/interview/${interviewId}/report`)}
+              >
+                View report
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

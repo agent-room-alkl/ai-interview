@@ -6,6 +6,11 @@ import { spawn } from "node:child_process";
 
 const TIMEOUT_MS = Number(process.env.PRISMA_MIGRATE_TIMEOUT_MS || 60_000);
 
+if (/^(1|true)$/i.test(process.env.SKIP_PRISMA_MIGRATE || "")) {
+  console.warn("[migrate-deploy] SKIP_PRISMA_MIGRATE is enabled; skipping migration deploy.");
+  process.exit(0);
+}
+
 // Prisma migrations need a session connection for advisory locks. Vercel's
 // DATABASE_URL may point at Supabase/PgBouncer, while the platform also
 // exposes POSTGRES_URL_NON_POOLING for schema changes.

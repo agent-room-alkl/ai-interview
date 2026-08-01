@@ -91,6 +91,7 @@ export async function POST(
         : [interview.targetRole],
     resumeText: interview.resumeText ?? "",
     mode: interview.mode as Mode,
+    durationMinutes: interview.durationMinutes,
     language: interview.language,
     expressionLevel,
     questionLimit: interviewQuestionLimit(interview.durationMinutes),

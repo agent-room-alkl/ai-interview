@@ -12,7 +12,11 @@ import {
   SAMPLE_WRITTEN_QUESTIONS,
   type WrittenQuestion,
 } from "@/lib/written-questions";
-import { PASS_THRESHOLD, type ExpressionLevel } from "@/lib/interview-engine";
+import {
+  interviewQuestionLimit,
+  PASS_THRESHOLD,
+  type ExpressionLevel,
+} from "@/lib/interview-engine";
 import { shouldForceCompleteOnZero } from "@/lib/interview-complete";
 import { QuestionCard } from "./QuestionCard";
 import { SpeakingIndicator } from "./SpeakingIndicator";
@@ -129,7 +133,7 @@ export default function InterviewRoom({
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialTurns);
-  const questionLimit = durationMinutes <= 10 ? 5 : durationMinutes <= 20 ? 8 : 12;
+  const questionLimit = interviewQuestionLimit(durationMinutes);
   const questionsAsked = messages.filter((m) => m.speaker === "interviewer").length;
   const progress = Math.min(questionsAsked, questionLimit);
   const [muted, setMuted] = useState(false);
@@ -161,6 +165,12 @@ export default function InterviewRoom({
     null,
   );
   const [, setUsedWrittenIds] = useState<string[]>([]);
+  const writtenCountRef = useRef(
+    initialTurns.filter(
+      (turn) => turn.speaker === "interviewer" && turn.text.startsWith("[Written "),
+    ).length,
+  );
+  const writtenLimit = durationMinutes <= 10 ? 1 : durationMinutes <= 20 ? 1 : 2;
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
   // Visible Pass handoff after a practice score of PASS_THRESHOLD+ (silent — no trainer TTS).
@@ -758,7 +768,8 @@ export default function InterviewRoom({
           const wm = buffer.match(WRITTEN_MARKER);
           const id = wm ? /ASK_WRITTEN:([a-z0-9_-]+)/i.exec(wm[0])?.[1] : null;
           const q = id ? SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id) : null;
-          if (q) {
+          if (q && writtenCountRef.current < writtenLimit) {
+            writtenCountRef.current += 1;
             setUsedWrittenIds((prev) =>
               prev.includes(q.id) ? prev : [...prev, q.id],
             );
@@ -1129,7 +1140,8 @@ export default function InterviewRoom({
   }, [submitBufferedAnswer]);
 
   const openWrittenQuestion = useCallback((q: WrittenQuestion) => {
-    if (busyRef.current) return;
+    if (busyRef.current || writtenCountRef.current >= writtenLimit) return;
+    writtenCountRef.current += 1;
     setUsedWrittenIds((prev) => (prev.includes(q.id) ? prev : [...prev, q.id]));
     setActiveWritten(q);
     setLastQuestion(q.prompt);
@@ -1140,7 +1152,7 @@ export default function InterviewRoom({
         text: `[Written ${q.kind}] ${q.prompt}`,
       },
     ]);
-  }, []);
+  }, [writtenLimit]);
 
   const submitWritten = useCallback(
     (utterance: string) => {

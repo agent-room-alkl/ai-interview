@@ -12,9 +12,15 @@ export const PASS_THRESHOLD = 75;
 
 /** Fixed question plan used by formal interviews. */
 export function interviewQuestionLimit(durationMinutes: number): number {
-  if (durationMinutes <= 10) return 5;
-  if (durationMinutes <= 20) return 8;
-  return 12;
+  if (durationMinutes <= 10) return 3;
+  if (durationMinutes <= 20) return 5;
+  return 8;
+}
+
+function writtenTestPlan(durationMinutes: number): string {
+  if (durationMinutes <= 10) return "At most 1 written test, and it is optional/random; it is fine to use none.";
+  if (durationMinutes <= 20) return "Use at most 1 written test.";
+  return "Use at most 2 written tests.";
 }
 
 /** T-27: documented score bands for calibration (prompt + smoke). */
@@ -69,6 +75,7 @@ export interface EngineContext {
   targetRoles?: string[];
   resumeText: string;
   mode: Mode;
+  durationMinutes?: number;
   /** BCP-47 primary subtag the interview is conducted in (e.g. "en", "zh"). */
   language?: string;
   /** T-14: how elaborate the AI's language should be (not role difficulty). */
@@ -152,8 +159,9 @@ Rules:
 - Do not answer for the candidate and do not lecture. Stay in character as the interviewer.
 - After ~6–8 substantive exchanges, wrap up: thank the candidate and say the interview is complete.
 
-WRITTEN TEST QUESTIONS (you decide when):
-- When it fits the role — usually to probe a concrete technical skill — you MAY give ONE short WRITTEN test instead of a spoken question. The candidate answers it in an on-screen card; YOU never reveal the answer.
+WRITTEN TEST QUESTIONS (you decide when; never force an irrelevant test):
+- ${writtenTestPlan(c.durationMinutes ?? 20)} A written test counts as one main question. Only use one when the target role and résumé show a matching domain skill. For technical roles, choose the matching language/system and use code debugging, code completion, reasoning/argument, or single/multi-choice questions. For nontechnical roles, use a domain-appropriate scenario, analysis, or choice question; never insert a generic developer coding test. A diagram/image prompt is allowed when it genuinely tests the role.
+- The candidate answers it in an on-screen card; YOU never reveal the answer.
 - To do this, write ONE brief spoken lead-in sentence, then on a new line output ONLY the marker: [[ASK_WRITTEN:<id>]] — choosing an <id> from this catalog:
 ${writtenCatalog()}
 - Emit the marker at most once every few turns, and never two in a row. Do not describe the question yourself — the card shows it. If none fit, just ask a normal question.

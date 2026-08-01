@@ -14,7 +14,7 @@ import {
   SAMPLE_WRITTEN_QUESTIONS,
   type WrittenQuestion,
 } from "@/lib/written-questions";
-import type { ExpressionLevel } from "@/lib/interview-engine";
+import { languageName, type ExpressionLevel } from "@/lib/interview-engine";
 import { QuestionCard } from "./QuestionCard";
 import {
   connectRealtimeSTT,
@@ -95,6 +95,7 @@ export default function InterviewRoom({
   targetRole,
   durationMinutes,
   deadlineAt,
+  language,
   initialTurns,
 }: {
   interviewId: string;
@@ -110,6 +111,7 @@ export default function InterviewRoom({
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialTurns);
+  const interviewLanguage = languageName(language);
   const questionLimit = durationMinutes <= 10 ? 5 : durationMinutes <= 20 ? 8 : 12;
   const questionsAsked = messages.filter((m) => m.speaker === "interviewer").length;
   const progress = Math.min(questionsAsked, questionLimit);
@@ -997,9 +999,13 @@ export default function InterviewRoom({
     });
   };
 
-  // Interviewer asks the first question on load (interview mode, empty transcript).
+  // Interviewer asks the first question on load when no interviewer turn exists.
+  // A resumed room can already contain a user/trainer turn, so checking only
+  // messages.length would leave it stuck after a failed first request.
   useEffect(() => {
-    if (messages.length === 0) void runAgent("interviewer", {});
+    if (!initialTurns.some((turn) => turn.speaker === "interviewer")) {
+      void runAgent("interviewer", {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1038,6 +1044,9 @@ export default function InterviewRoom({
           <Link href="/dashboard" className="mb-1 inline-flex"><Logo compact /></Link>
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
             {mode === "practice" ? "Practice room" : "Interview room"}
+          </p>
+          <p className="mt-0.5 text-[11px] font-medium text-gray-500">
+            Language · {interviewLanguage}
           </p>
           <h1 className="mt-1 truncate text-lg font-semibold tracking-[-0.03em] sm:text-2xl">
             {targetRole}

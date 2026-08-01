@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { PackId } from "@/lib/billing";
+import { getStoredUtm, trackEvent } from "@/lib/analytics";
 
 export function BuyPackButton({
   pack,
@@ -18,6 +19,7 @@ export function BuyPackButton({
   async function onClick() {
     setPending(true);
     setError(null);
+    trackEvent("begin_checkout", { pack, ...getStoredUtm() });
     try {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",

@@ -6,8 +6,9 @@ import { MAX_RESUME_CONTEXT_CHARS } from "./resume-parse";
 
 export type Mode = "practice" | "interview";
 
-/** T-12: the score (0–100) a practice answer must reach to move on. */
-export const PASS_THRESHOLD = 80;
+/** T-12: the score (0–100) a practice answer must reach to move on.
+ * Product gate is 75+ (silent Pass handoff → next interviewer question). */
+export const PASS_THRESHOLD = 75;
 
 /** Fixed question plan used by formal interviews. */
 export function interviewQuestionLimit(durationMinutes: number): number {
@@ -20,8 +21,8 @@ export function interviewQuestionLimit(durationMinutes: number): number {
 export const SCORE_BANDS = {
   emptyOrNoise: { min: 0, max: 29 },
   vague: { min: 30, max: 59 },
-  partial: { min: 60, max: 79 },
-  strongPass: { min: 80, max: 89 },
+  partial: { min: 60, max: PASS_THRESHOLD - 1 },
+  strongPass: { min: PASS_THRESHOLD, max: 89 },
   excellent: { min: 90, max: 100 },
 } as const;
 
@@ -128,7 +129,7 @@ ${c.resumeText.slice(0, MAX_RESUME_CONTEXT_CHARS)}
 export function interviewerSystemPrompt(c: EngineContext): string {
   const modeNote =
     c.mode === "practice"
-      ? "This is a PRACTICE session. Ask one question, then WAIT. A separate Trainer will coach the candidate between questions — do not coach yourself."
+      ? "This is a PRACTICE session. Ask one question, then WAIT while a separate Trainer coaches the candidate. When you later receive a [SYSTEM] instruction to ask the next question (after a passing score), do ask exactly one new question — do not coach and do not re-ask the previous question."
       : "This is a REAL interview simulation. Conduct it professionally end-to-end.";
   return `You are an experienced hiring interviewer for the role(s) of ${rolesLabel(c)}.
 ${modeNote}
@@ -206,8 +207,8 @@ Then end with exactly: "Now try saying it again in your own words."
 SCORING RUBRIC (T-27) — use the FULL 0–100 range. Do NOT habitually land on round mid-band scores like 45/60/70.
 - 0–29: Empty, off-topic, or only filler / noise.
 - 30–59: Vague attempt — missing structure AND specifics (no clear ownership, no concrete actions/results).
-- 60–79: Partial — some relevant content OR some STAR pieces, but incomplete structure, weak ownership, or no measurable outcome. Not yet hire-ready / not a pass.
-- 80–89: Strong pass — clear situation → action → result, specific example, at least one concrete metric or outcome, relevant to the role. Award ${PASS_THRESHOLD}+ when these are present even if phrasing is imperfect.
+- 60–${PASS_THRESHOLD - 1}: Partial — some relevant content OR some STAR pieces, but incomplete structure, weak ownership, or no measurable outcome. Not yet hire-ready / not a pass.
+- ${PASS_THRESHOLD}–89: Pass — clear situation → action → result, specific example, at least one concrete metric or outcome, relevant to the role. Award ${PASS_THRESHOLD}+ when these are present even if phrasing is imperfect.
 - 90–100: Excellent — crisp STAR, quantified impact, role-deep insight.
 
 Speech-to-text noise (T-15/T-20): the ANSWER often has misheard words, homophones, garbled terms, or run-ons. Grade EVIDENT intent and substance — do NOT park a strong answer in the 60s because of transcription artifacts. If the candidate is clearly delivering a coached Practice answer (same story beats / metrics) despite messy STT, score ${PASS_THRESHOLD}+ when the substance matches a strong answer.
@@ -243,36 +244,15 @@ function scoreOf(text: string): number | null {
  * ask a coherent follow-up. Older rounds are folded into a compact recap (the
  * question asked + the practice score, if any) so we don't resend the entire
  * transcript — plus the résumé — on every turn.
+ *
+ * Important: practice mode tells the model to "ask one question, then WAIT".
+ * After a completed (and, in practice, passed) round we must send an explicit
+ * next-question nudge, or the model often produces no new question.
  */
 export function buildInterviewerMessages(
   c: EngineContext,
   transcript: TranscriptTurn[],
 ): EngineMessage[] {
-  const messages: EngineMessage[] = [];
-  for (const t of transcript) {
-    if (t.speaker === "interviewer")
-      messages.push({ role: "assistant", content: t.text });
-    else if (t.speaker === "user")
-      messages.push({ role: "user", content: t.text });
-    else if (t.speaker === "trainer") {
-      const score = t.text.match(/\*\*Score:\*\*\s*(\d{1,3})\/100/i)?.[1];
-      const focus = t.text.match(
-        /\*\*(?:Next focus|To improve):\*\*\s*([^\n]+)/i,
-      )?.[1];
-      const note = t.text.match(/\*\*Coach note:\*\*\s*([^\n]+)/i)?.[1];
-      const summary = [
-        score ? `score=${score}/100` : "",
-        focus ? `focus=${focus.trim()}` : "",
-        note ? `probe=${note.trim()}` : "",
-      ].filter(Boolean);
-      if (summary.length) {
-        messages.push({
-          role: "user",
-          content: `[COACH_CONTEXT] ${summary.join("; ")}`,
-        });
-      }
-    }
-  }
   if (transcript.length === 0) {
     return [
       {
@@ -282,21 +262,36 @@ export function buildInterviewerMessages(
     ];
   }
 
-  // Reconstruct question→answer rounds (trainer turns only contribute a score).
-  type Round = { q: string; a: string; score: number | null };
+  // Reconstruct question→answer rounds (trainer turns contribute score/focus).
+  type Round = {
+    q: string;
+    a: string;
+    score: number | null;
+    focus: string | null;
+    note: string | null;
+  };
   const rounds: Round[] = [];
   const last = () => rounds[rounds.length - 1];
   for (const t of transcript) {
     if (t.speaker === "interviewer") {
-      rounds.push({ q: t.text, a: "", score: null });
+      rounds.push({ q: t.text, a: "", score: null, focus: null, note: null });
     } else if (t.speaker === "user") {
-      if (!rounds.length || last().a) rounds.push({ q: "", a: t.text, score: null });
-      else last().a = t.text;
+      if (!rounds.length || last().a) {
+        rounds.push({ q: "", a: t.text, score: null, focus: null, note: null });
+      } else {
+        last().a = t.text;
+      }
     } else if (t.speaker === "trainer" && rounds.length) {
       last().score = scoreOf(t.text);
+      last().focus =
+        t.text.match(/\*\*(?:Next focus|To improve):\*\*\s*([^\n]+)/i)?.[1]?.trim() ??
+        last().focus;
+      last().note =
+        t.text.match(/\*\*Coach note:\*\*\s*([^\n]+)/i)?.[1]?.trim() ?? last().note;
     }
   }
 
+  const messages: EngineMessage[] = [];
   const cut = Math.max(0, rounds.length - INTERVIEWER_RECENT_ROUNDS);
   const older = rounds.slice(0, cut);
   const recent = rounds.slice(cut);
@@ -321,8 +316,55 @@ export function buildInterviewerMessages(
   }
   for (const r of recent) {
     if (r.q) messages.push({ role: "assistant", content: r.q });
-    if (r.a) messages.push({ role: "user", content: r.a });
+    if (r.a) {
+      messages.push({ role: "user", content: r.a });
+      const summary = [
+        r.score != null ? `score=${r.score}/100` : "",
+        r.focus ? `focus=${r.focus}` : "",
+        r.note ? `probe=${r.note}` : "",
+      ].filter(Boolean);
+      if (summary.length) {
+        messages.push({
+          role: "user",
+          content: `[COACH_CONTEXT] ${summary.join("; ")}`,
+        });
+      }
+    }
   }
+
+  const latest = rounds[rounds.length - 1];
+  if (!latest?.q && !latest?.a) {
+    messages.push({
+      role: "user",
+      content: `Please greet ${c.candidateName} briefly by name and ask the first interview question.`,
+    });
+  } else if (latest.a) {
+    // Completed candidate answer. Practice mode waits for a pass before the
+    // next question; interview mode always continues after an answer.
+    const practiceBlocked =
+      c.mode === "practice" &&
+      (latest.score == null || latest.score < PASS_THRESHOLD);
+    if (practiceBlocked) {
+      messages.push({
+        role: "user",
+        content:
+          "[SYSTEM] The candidate is still practicing the current question (not yet passed). Do NOT ask a new question. Wait — the Trainer handles coaching.",
+      });
+    } else {
+      messages.push({
+        role: "user",
+        content: `[SYSTEM] Ask the next interview question now for ${c.candidateName}. One concise spoken question only. Do not re-ask the previous question, do not coach, and do not recap the score.`,
+      });
+    }
+  } else {
+    // Unanswered current question — client normally will not call here.
+    messages.push({
+      role: "user",
+      content:
+        "[SYSTEM] The current question is still unanswered. Do not ask a new question. You may briefly restate the current question if needed.",
+    });
+  }
+
   return messages;
 }
 

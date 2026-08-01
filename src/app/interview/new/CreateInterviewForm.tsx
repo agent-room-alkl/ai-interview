@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import {
   createInterview,
   type CreateInterviewState,
@@ -8,9 +8,14 @@ import {
 
 const initial: CreateInterviewState = {};
 
-export function CreateInterviewForm() {
+export function CreateInterviewForm({ initialResumeText = "" }: { initialResumeText?: string }) {
   const [state, formAction, pending] = useActionState(createInterview, initial);
   const [mode, setMode] = useState<"practice" | "interview">("practice");
+  const [resumeText, setResumeText] = useState(initialResumeText);
+
+  useEffect(() => {
+    if (state.resumePreview) setResumeText(state.resumePreview);
+  }, [state.resumePreview]);
 
   // React sets method/encType automatically for Server Action forms — do not set encType.
   return (
@@ -100,14 +105,17 @@ export function CreateInterviewForm() {
 
       <label className="block">
         <span className="text-sm font-medium text-[#65736d]">
-          Résumé file (PDF or DOCX)
+          Résumé file (PDF, HTML, DOCX, or TXT)
         </span>
         <input
           name="resumeFile"
           type="file"
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept=".pdf,.html,.htm,.docx,.txt,application/pdf,text/html,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="mt-2 block w-full text-sm text-[#65736d] file:mr-4 file:rounded-full file:border-0 file:bg-[#17201e] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#f6f5f0]"
         />
+        <p className="mt-2 text-xs leading-5 text-[#65736d]">
+          We remove email, phone, and address details, then prepare a concise résumé background for the AI.
+        </p>
       </label>
 
       <label className="block">
@@ -116,10 +124,20 @@ export function CreateInterviewForm() {
         </span>
         <textarea
           name="resumeText"
+          value={resumeText}
+          onChange={(e) => setResumeText(e.target.value)}
           rows={10}
-          placeholder="Paste your résumé here if you prefer not to upload a file…"
+          placeholder="Upload a résumé above, or write/paste the background you want the AI to use…"
           className="mt-2 w-full rounded-2xl border border-[#17201e]/15 bg-white px-4 py-3 text-[#17201e] outline-none focus:border-[#17201e]"
         />
+        <p className="mt-2 text-xs text-[#65736d]">
+          Review and edit this background before continuing. Your name is kept; contact details are removed.
+        </p>
+        {initialResumeText ? (
+          <p className="mt-2 rounded-xl bg-[#e3eee7] px-3 py-2 text-xs leading-5 text-[#52605a]">
+            Your last saved résumé background is loaded here. Edit it or upload a new résumé to replace it.
+          </p>
+        ) : null}
       </label>
 
       <button

@@ -1,5 +1,6 @@
 "use client";
 // T-09: Scorecard UI + downloads (HTML file + print-to-PDF).
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 type Dimension = { name: string; score: number; feedback: string };
@@ -138,6 +139,12 @@ export default function ReportView({
       </div>
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row print:hidden">
+        <Link
+          href="/dashboard"
+          className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-medium"
+        >
+          Back to dashboard
+        </Link>
         <a
           href={`/api/interview/${interviewId}/report/html`}
           className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white"

@@ -15,6 +15,7 @@ model User {
   email        String      @unique
   passwordHash String // unused under Clerk — written as "" for NOT NULL compat
   name         String?
+  resumeContext String?
   createdAt    DateTime    @default(now())
   interviews   Interview[]
 

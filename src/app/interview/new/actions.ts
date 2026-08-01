@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { canStartSession, PAID_DURATIONS } from "@/lib/billing";
 import { prisma } from "@/lib/prisma";
 import { parseResumeFile, standardizeResumeText } from "@/lib/resume-parse";
 
@@ -29,7 +30,9 @@ export async function createInterview(
   if (modeRaw !== "practice" && modeRaw !== "interview") {
     return { error: "Choose Practice or Interview mode." };
   }
-  const durationMinutes = [10, 20, 30].includes(durationRaw) ? durationRaw : 20;
+  const durationMinutes = (PAID_DURATIONS as readonly number[]).includes(durationRaw)
+    ? durationRaw
+    : 20;
 
   let resumeText = pasted;
   let resumeFileUrl: string | null = null;
@@ -54,10 +57,26 @@ export async function createInterview(
     };
   }
 
+  const billing = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { accessUntil: true, trialUsed: true },
+  });
+  const accessCheck = canStartSession({
+    accessUntil: billing?.accessUntil,
+    trialUsed: billing?.trialUsed ?? false,
+    durationMinutes,
+  });
+  if (!accessCheck.ok) {
+    return { error: `${accessCheck.reason} See Pricing to buy access.` };
+  }
+
   const interview = await prisma.$transaction(async (tx) => {
     await tx.user.update({
       where: { id: session.user.id },
-      data: { resumeContext: resumeText },
+      data: {
+        resumeContext: resumeText,
+        ...(accessCheck.via === "trial" ? { trialUsed: true } : {}),
+      },
     });
     return tx.interview.create({
       data: {

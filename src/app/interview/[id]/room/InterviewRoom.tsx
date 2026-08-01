@@ -929,11 +929,14 @@ export default function InterviewRoom({
       }
       const pending = resumeSpeechPendingRef.current;
       if (pending === "__await_next__") {
-        if (!busyRef.current) {
-          setClearExchangeUI(true);
-          setLastScore(null);
-          setShowPassHandoff(false);
-          void runAgent("interviewer", {});
+        // The interviewer request is already in flight (or has just landed).
+        // A gesture should unlock/replay its current question, never start a
+        // second chat request that would produce a duplicate opening prompt.
+        const q = lastQuestionRef.current.trim();
+        if (q && !busyRef.current) {
+          resumeSpeechPendingRef.current = q;
+          stopSpeaking();
+          speakInterviewerNow(q, { force: true });
         }
         return;
       }
@@ -1354,20 +1357,6 @@ export default function InterviewRoom({
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // After a streamed next question lands, retry TTS if autoplay was blocked.
-  // Ignore the mount snapshot so we don't re-speak the pre-advance question
-  // while the next interviewer turn is still in flight.
-  useEffect(() => {
-    if (resumeSpeechPendingRef.current !== "__await_next__") return;
-    if (busy || resumeSpeechDoneRef.current || aiSpeakingRef.current) return;
-    const q = lastQuestion.trim();
-    if (!q) return;
-    if (q === stripMarkers(initialQuestionRef.current).trim()) return;
-    resumeSpeechPendingRef.current = q;
-    setSpeechUnlockNeeded(true);
-    speakInterviewerNow(q, { force: true });
-  }, [busy, lastQuestion, speakInterviewerNow]);
 
   // Soft unlock on first gesture (does not mark done until audio actually plays).
   useEffect(() => {

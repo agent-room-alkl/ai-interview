@@ -1,21 +1,41 @@
 "use client";
 
-export function Logo({ compact = false }: { compact?: boolean }) {
-  return (
+export function Logo({
+  compact = false,
+  showTagline = false,
+}: {
+  compact?: boolean;
+  showTagline?: boolean;
+}) {
+  const logoText = (
     <span
-      className={`inline-flex items-baseline font-semibold tracking-[-0.07em] ${compact ? "text-base" : "text-xl"}`}
-      aria-label="Ainterv"
+      className={`inline-flex items-baseline font-semibold tracking-[-0.07em] ${
+        compact ? "text-xl sm:text-2xl" : "text-3xl sm:text-4xl"
+      }`}
+      aria-label="Ainterv.com"
     >
       <span className="text-[#e57b4f]">A</span>
-      <span className="relative text-[#17201e]">
+      <span className="relative inline-flex w-[0.32em] justify-center text-[#17201e]">
         ı
         <span
           aria-hidden="true"
-          className="absolute left-1/2 top-[-0.12em] h-[0.28em] w-[0.28em] -translate-x-1/2 rounded-full bg-[#d7f16a] ring-1 ring-[#17201e]/10"
+          className="absolute left-1/2 top-[-0.3em] h-[0.24em] w-[0.24em] -translate-x-1/2 rounded-full bg-[#d7f16a] ring-1 ring-[#17201e]/10"
         />
       </span>
-      <span className="text-[#17201e]">nterv</span>
-      <span className="ml-[0.18em] text-[0.72em] font-medium tracking-[-0.04em] text-[#65736d]">.com</span>
+      <span className="text-[#17201e]">nterv.com</span>
     </span>
+  );
+
+  if (compact && !showTagline) {
+    return logoText;
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-1">
+      {logoText}
+      <span className="text-[10px] font-semibold tracking-[0.03em] uppercase text-[#65736d] sm:text-[11px]">
+        Answer your best one.
+      </span>
+    </div>
   );
 }

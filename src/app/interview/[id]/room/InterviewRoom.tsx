@@ -686,12 +686,12 @@ export default function InterviewRoom({
       const ac = new AbortController();
       chatAbortRef.current = ac;
       setBusy(true);
-      // Practice trainer scores must finish before we know whether to speak.
-      // Defer TTS for scored coaching so a pass (>= PASS_THRESHOLD) stays display-only.
-      const deferTrainerSpeech =
-        agent === "trainer" &&
-        mode === "practice" &&
-        opts.coachingStyle !== "model";
+      // Buffer all practice-trainer responses until the stream finishes. This
+      // keeps model answers (including their closing cue) in one TTS payload,
+      // avoiding sentence-split/tail-flush races that can drop the last line.
+      // Compact scored coaching still decides below whether that payload is
+      // spoken or kept display-only after parsing the score.
+      const deferTrainerSpeech = agent === "trainer" && mode === "practice";
       cancelSpeakRef.current = false;
       const nextSpeaking = deferTrainerSpeech ? null : agent;
       setSpeakingAgent(nextSpeaking);

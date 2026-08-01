@@ -659,6 +659,9 @@ export default function InterviewRoom({
     setLastGradedTranscript("");
     setEditingTranscript(false);
     setTranscriptDraft("");
+    // Keep the passed round visible during the three-second handoff, then
+    // clear its Trainer feedback and answer before the next question arrives.
+    setMessages([]);
     void runAgent("interviewer", {});
   }, [handleFinish, mode, questionLimit, questionsAsked, runAgent, resetIdleReminders]);
 

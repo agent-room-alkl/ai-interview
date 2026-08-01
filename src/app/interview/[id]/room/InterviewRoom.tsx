@@ -3,7 +3,6 @@
 // segmenting → MediaRecorder → server STT (OpenAI), plus streaming TTS and mute.
 // This replaced the browser Web Speech API, whose mobile behaviour was
 // unreliable (no raw audio, no echo control, duplicated/echoed finals).
-// T-26: suggested industry / role questions as tappable chips.
 // Speaking over the AI stops its TTS (barge-in) and is captured as the answer.
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";

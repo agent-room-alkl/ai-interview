@@ -818,6 +818,8 @@ export default function InterviewRoom({
         coachingStyle?: "compact" | "model";
         /** Skip / forced advance — server must ask a new question even if score < pass. */
         forceNextQuestion?: boolean;
+        /** Persist the final formal-interview answer without generating Q+1. */
+        completeAfterAnswer?: boolean;
       } = {},
     ) => {
       if (leavingRef.current) return;
@@ -863,6 +865,10 @@ export default function InterviewRoom({
           }),
           signal: ac.signal,
         });
+        if (opts.completeAfterAnswer && res.status === 204) {
+          handleFinish();
+          return;
+        }
         if (!res.ok || !res.body) throw new Error("chat");
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -972,7 +978,7 @@ export default function InterviewRoom({
       }
       void idx;
     },
-    [interviewId, language, messages.length, mode, enqueueSpeech, finalizeSpeech, stopSpeaking],
+    [interviewId, language, messages.length, mode, enqueueSpeech, finalizeSpeech, handleFinish, stopSpeaking],
   );
 
   // T-12: clear the score gate whenever the candidate starts a fresh answer,
@@ -1222,10 +1228,14 @@ export default function InterviewRoom({
           userText: t,
         });
       } else {
-        void runAgent("interviewer", { userText: t });
+        const finalAnswer = questionsAsked >= questionLimit;
+        void runAgent("interviewer", {
+          userText: t,
+          completeAfterAnswer: finalAnswer,
+        });
       }
     },
-    [mode, repeatQuestion, runAgent, enqueueSpeech, finalizeSpeech, resetIdleReminders],
+    [mode, questionLimit, questionsAsked, repeatQuestion, runAgent, enqueueSpeech, finalizeSpeech, resetIdleReminders],
   );
 
   const openEditTranscript = useCallback(() => {
@@ -1543,6 +1553,10 @@ export default function InterviewRoom({
       return;
     }
     if (mode === "interview" && initialTurns.at(-1)?.speaker === "user") {
+      if (initialTurns.filter((turn) => turn.speaker === "interviewer").length >= questionLimit) {
+        void handleFinish();
+        return;
+      }
       resumeSpeechPendingRef.current = "__await_next__";
       setSpeechUnlockNeeded(true);
       void runAgent("interviewer", {});

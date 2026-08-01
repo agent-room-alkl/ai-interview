@@ -137,6 +137,21 @@ export async function POST(
     text: t.text,
   }));
 
+  // The final formal-interview answer is already persisted above. Complete
+  // without asking the model for one more interviewer question.
+  if (
+    body.completeAfterAnswer === true &&
+    agent === "interviewer" &&
+    interview.mode === "interview" &&
+    transcript.filter((turn) => turn.speaker === "interviewer").length >= (ctx.questionLimit ?? 0)
+  ) {
+    await prisma.interview.updateMany({
+      where: { id, status: { not: "completed" }, pausedAt: null },
+      data: { status: "completed" },
+    });
+    return new Response(null, { status: 204 });
+  }
+
   const system =
     agent === "trainer"
       ? trainerSystemPrompt(ctx, body.coachingStyle === "model")

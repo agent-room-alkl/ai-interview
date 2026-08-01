@@ -13,6 +13,7 @@ import {
   type WrittenQuestion,
 } from "@/lib/written-questions";
 import { PASS_THRESHOLD, type ExpressionLevel } from "@/lib/interview-engine";
+import { shouldForceCompleteOnZero } from "@/lib/interview-complete";
 import { QuestionCard } from "./QuestionCard";
 import { SpeakingIndicator } from "./SpeakingIndicator";
 import {
@@ -578,6 +579,7 @@ export default function InterviewRoom({
     if (finishing || leavingRef.current) return;
     leavingRef.current = true;
     setFinishing(true);
+    setTimeExpired(true);
     clearSilenceTimer();
     clearIdleReminder();
     stopSpeaking();
@@ -587,17 +589,21 @@ export default function InterviewRoom({
     realtimeRef.current?.close();
     realtimeRef.current = null;
     const reportUrl = `/interview/${interviewId}/report`;
-    router.push(reportUrl);
-    // Client navigation can stall while a chat stream is open — hard fallback.
-    window.setTimeout(() => {
-      if (window.location.pathname.includes("/room")) {
-        window.location.assign(reportUrl);
-      }
-    }, 1200);
+    // Persist completed + best-effort report before leaving the room.
+    void fetch(`/api/interview/${interviewId}/complete`, { method: "POST" })
+      .catch(() => {})
+      .finally(() => {
+        router.push(reportUrl);
+        window.setTimeout(() => {
+          if (window.location.pathname.includes("/room")) {
+            window.location.assign(reportUrl);
+          }
+        }, 1200);
+      });
   }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
 
   // Tick against the server-issued absolute deadline so tab throttling does not
-  // make the countdown drift.
+  // make the countdown drift. At zero: stop I/O and force-complete.
   useEffect(() => {
     if (!deadlineAt) {
       setTimeLeft(null);
@@ -608,17 +614,17 @@ export default function InterviewRoom({
     const update = () => {
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       setTimeLeft(remaining);
-      if (remaining === 0 && mode === "interview" && !finished) {
+      if (shouldForceCompleteOnZero(remaining, finished)) {
         finished = true;
         setTimeExpired(true);
         window.clearInterval(timer);
-        window.setTimeout(handleFinish, 1000);
+        window.setTimeout(handleFinish, 400);
       }
     };
     update();
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
-  }, [deadlineAt, handleFinish, mode]);
+  }, [deadlineAt, handleFinish]);
 
   // ---------- Chat (streaming text from an agent) ----------
   const runAgent = useCallback(
@@ -958,7 +964,7 @@ export default function InterviewRoom({
   const handleUserUtterance = useCallback(
     (text: string) => {
       const t = text.trim();
-      if (!t || busyRef.current) return;
+      if (!t || busyRef.current || leavingRef.current) return;
       resetIdleReminders(); // T-01: they answered — end the silence-nudge cycle
       if (isRepeatRequest(t)) {
         // A spoken request to hear the question again is a control command, not
@@ -1045,7 +1051,7 @@ export default function InterviewRoom({
     const answer = answerBufferRef.current.trim();
     answerBufferRef.current = "";
     setHasPendingAnswer(false);
-    if (!answer || busyRef.current) return;
+    if (!answer || busyRef.current || leavingRef.current) return;
     handleUserUtterance(answer);
   }, [clearSilenceTimer, handleUserUtterance]);
 
@@ -1803,7 +1809,7 @@ export default function InterviewRoom({
 
       <TypeFallback
         onSend={handleUserUtterance}
-        disabled={busy}
+        disabled={busy || finishing || timeExpired}
         mode={mode}
         writtenQuestions={[]}
         onWritten={openWrittenQuestion}

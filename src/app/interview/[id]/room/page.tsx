@@ -43,15 +43,14 @@ export default async function RoomPage({
     });
     if (!interview) redirect("/dashboard");
   }
-  if (
-    interview.mode === "interview" &&
-    interview.deadlineAt &&
-    interview.deadlineAt.getTime() <= Date.now()
-  ) {
-    await prisma.interview.update({
-      where: { id },
-      data: { status: "completed" },
-    });
+  // Countdown hit zero (practice soft timer or formal hard stop) → report only.
+  if (interview.deadlineAt && interview.deadlineAt.getTime() <= Date.now()) {
+    if (interview.status !== "completed") {
+      await prisma.interview.update({
+        where: { id },
+        data: { status: "completed" },
+      });
+    }
     redirect(`/interview/${id}/report`);
   }
 

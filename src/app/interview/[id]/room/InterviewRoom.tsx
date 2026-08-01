@@ -797,7 +797,17 @@ export default function InterviewRoom({
           }
           // speak any trailing text (minus control markers)
           const tail = stripMarkers(buffer.slice(spokenUpTo));
-          if (tail) enqueueSpeech(tail);
+          if (q) {
+            // A marker-only or punctuation-free response can leave no TTS
+            // sentence in the stream. Always give the candidate a spoken
+            // handoff before the written QuestionCard in that case.
+            if (tail) enqueueSpeech(tail);
+            else if (spokenUpTo === 0) {
+              enqueueSpeech("Please complete this written exercise.");
+            }
+          } else if (tail) {
+            enqueueSpeech(tail);
+          }
           finalizeSpeech();
         } else if (
           agent === "trainer" &&

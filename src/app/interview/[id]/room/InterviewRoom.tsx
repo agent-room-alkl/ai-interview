@@ -1239,6 +1239,17 @@ export default function InterviewRoom({
         ))}
       </div>
 
+      {lastQuestion ? (
+        <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 sm:px-5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+            Current question
+          </p>
+          <p className="mt-1 text-sm leading-6 text-indigo-950 sm:text-[15px] sm:leading-7">
+            {lastQuestion}
+          </p>
+        </div>
+      ) : null}
+
       {/* T-03: large live caption of whoever holds the floor right now — the
           candidate's live transcript while they speak, otherwise the most recent
           interviewer/trainer turn. The turn-by-turn log moves into the

@@ -19,7 +19,7 @@ export function Logo({
         ı
         <span
           aria-hidden="true"
-          className="absolute left-1/2 top-[0.11em] h-[0.22em] w-[0.22em] -translate-x-1/2 rounded-full bg-[#d7f16a] ring-1 ring-[#17201e]/10"
+          className="absolute left-[55%] top-[0.03em] h-[0.22em] w-[0.22em] -translate-x-1/2 rounded-full bg-[#d7f16a] ring-1 ring-[#17201e]/10"
         />
       </span>
       <span className="text-[#17201e]">nterv.com</span>

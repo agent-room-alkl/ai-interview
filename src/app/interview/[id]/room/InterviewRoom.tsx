@@ -140,8 +140,10 @@ export default function InterviewRoom({
   const [, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
-  // T-34 / T-20: keep the graded transcript so the candidate can edit ASR text
-  // and re-score without re-speaking.
+  // Legacy transcript editing helpers remain wired to the retry flow.
+  const [lastGradedTranscript, setLastGradedTranscript] = useState("");
+  const [editingTranscript, setEditingTranscript] = useState(false);
+  const [transcriptDraft, setTranscriptDraft] = useState("");
   // T-23: deadline is authoritative server state and cannot be reset by
   // refreshing, clearing browser storage, or opening another tab.
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -662,6 +664,9 @@ export default function InterviewRoom({
     }
     resetIdleReminders();
     setLastScore(null);
+    setLastGradedTranscript("");
+    setEditingTranscript(false);
+    setTranscriptDraft("");
     void runAgent("interviewer", {});
   }, [handleFinish, mode, questionLimit, questionsAsked, runAgent, resetIdleReminders]);
 
@@ -749,6 +754,7 @@ export default function InterviewRoom({
         return;
       }
       if (mode === "practice") {
+        setLastGradedTranscript(t);
         // Trainer coaches the latest answer to the last interviewer question.
         // Read the question from a ref so the mount-time recognition handler
         // always coaches against the CURRENT question, not a stale one.
@@ -763,6 +769,39 @@ export default function InterviewRoom({
     },
     [mode, repeatQuestion, runAgent, enqueueSpeech, finalizeSpeech, resetIdleReminders],
   );
+
+  const openEditTranscript = useCallback(() => {
+    setTranscriptDraft(lastGradedTranscript);
+    setEditingTranscript(true);
+  }, [lastGradedTranscript]);
+
+  const submitEditedTranscript = useCallback(() => {
+    const next = transcriptDraft.trim();
+    if (!next || busyRef.current) return;
+    setEditingTranscript(false);
+    handleUserUtterance(next);
+  }, [transcriptDraft, handleUserUtterance]);
+
+  const prepareRetry = useCallback(() => {
+    setLastScore(null);
+    setEditingTranscript(false);
+    setTranscriptDraft("");
+    resetIdleReminders();
+    const prompt = "Take your time. Try the same question again when you're ready.";
+    setMessages((current) => [...current, { speaker: "trainer", text: prompt }]);
+    setSpeakingAgent("trainer");
+    enqueueSpeech(prompt);
+    finalizeSpeech();
+  }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
+
+  const showModelAnswer = useCallback(() => {
+    if (!lastGradedTranscript || busyRef.current) return;
+    void runAgent("trainer", {
+      question: lastQuestionRef.current,
+      answer: lastGradedTranscript,
+      coachingStyle: "model",
+    });
+  }, [lastGradedTranscript, runAgent]);
 
   // Submit whatever the candidate has said so far (idle-triggered or via the
   // explicit "Done" button). Coaching only fires here, never mid-answer.
@@ -1005,15 +1044,30 @@ export default function InterviewRoom({
     });
   };
 
-  // Interviewer asks the first question on load when no interviewer turn exists.
-  // A resumed room can already contain a user/trainer turn, so checking only
-  // messages.length would leave it stuck after a failed first request.
+  // Ask on first load when there is no question yet, or when a resumed room
+  // ended on a completed round. If the latest turn is interviewer, preserve
+  // that current question instead of issuing a duplicate request.
   useEffect(() => {
-    if (!initialTurns.some((turn) => turn.speaker === "interviewer")) {
+    const latest = initialTurns.at(-1);
+    const needsNextQuestion =
+      latest?.speaker === "trainer" ||
+      (mode === "interview" && latest?.speaker === "user");
+    if (
+      !initialTurns.some((turn) => turn.speaker === "interviewer") ||
+      needsNextQuestion
+    ) {
       void runAgent("interviewer", {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Restore the latest trainer score from history on load.
+  useEffect(() => {
+    const trainerMsg = [...initialTurns].reverse().find((t) => t.speaker === "trainer");
+    if (trainerMsg) {
+      setLastScore(parseScore(trainerMsg.text));
+    }
+  }, [initialTurns]);
 
   // Mobile browsers keep a new AudioContext suspended until a user gesture.
   // Resume the TTS playback context on the first tap/keypress.
@@ -1187,6 +1241,94 @@ export default function InterviewRoom({
           </section>
         );
       })()}
+
+      {mode === "practice" && lastScore != null && !activeWritten && (
+        <div className="mt-2 shrink-0 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+          {editingTranscript ? (
+            <div className="flex flex-col gap-2">
+              <label htmlFor="edit-transcript" className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                Edit transcript
+              </label>
+              <textarea
+                id="edit-transcript"
+                value={transcriptDraft}
+                onChange={(e) => setTranscriptDraft(e.target.value)}
+                rows={3}
+                disabled={busy}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs leading-5 text-gray-900 shadow-sm"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy || !transcriptDraft.trim()}
+                  onClick={submitEditedTranscript}
+                  className="min-h-9 rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  Re-score
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setEditingTranscript(false)}
+                  className="min-h-9 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-xs font-medium text-gray-700"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/50 pb-2">
+                <div className="text-xs text-amber-900 font-medium">
+                  Your Score: <span className="text-sm font-bold text-amber-800">{lastScore}/100</span>
+                </div>
+                <div className="text-[10px] text-gray-500">
+                  Review the feedback, then choose an action:
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {lastGradedTranscript && !busy && (
+                  <button
+                    type="button"
+                    onClick={openEditTranscript}
+                    className="min-h-9 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-900 hover:opacity-85"
+                  >
+                    ✏️ Edit transcript
+                  </button>
+                )}
+                {!busy && (
+                  <button
+                    type="button"
+                    onClick={prepareRetry}
+                    className="min-h-9 rounded-full border border-amber-300 bg-amber-100 px-4 py-1.5 text-xs font-semibold text-amber-900 hover:opacity-85"
+                  >
+                    🔄 Try again
+                  </button>
+                )}
+                {lastGradedTranscript && !busy && (
+                  <button
+                    type="button"
+                    onClick={showModelAnswer}
+                    className="min-h-9 rounded-full border border-violet-200 bg-violet-50 px-4 py-1.5 text-xs font-semibold text-violet-900 hover:opacity-85"
+                  >
+                    ✨ See model answer
+                  </button>
+                )}
+                {!busy && (
+                  <button
+                    type="button"
+                    onClick={continueToNextQuestion}
+                    className="min-h-9 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:opacity-85"
+                  >
+                    Next question →
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {activeWritten ? (
         <div className="mt-2">
           <QuestionCard

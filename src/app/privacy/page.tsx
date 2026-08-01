@@ -1,8 +1,11 @@
 import Link from "next/link";
 
-export const metadata = {
-  title: "Privacy Policy · ai interview",
-  description: "Privacy Policy for the ai interview practice product.",
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Privacy Policy",
+  description: "Privacy Policy for Ainterv AI interview practice.",
+  alternates: { canonical: "/privacy" },
 };
 
 export default function PrivacyPage() {

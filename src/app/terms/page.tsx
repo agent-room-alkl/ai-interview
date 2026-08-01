@@ -1,8 +1,11 @@
 import Link from "next/link";
 
-export const metadata = {
-  title: "Terms of Service · ai interview",
-  description: "Terms of Service for the ai interview practice product.",
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Terms of Service",
+  description: "Terms of Service for Ainterv AI interview practice.",
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {

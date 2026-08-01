@@ -1,7 +1,26 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { Logo } from "@/components/Logo";
+import {
+  SITE_DEFAULT_TITLE,
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  SITE_TAGLINE,
+  getSiteUrl,
+} from "@/lib/site";
+
+export const metadata: Metadata = {
+  title: { absolute: SITE_DEFAULT_TITLE },
+  description: SITE_DESCRIPTION,
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: SITE_DEFAULT_TITLE,
+    description: SITE_DESCRIPTION,
+    url: "/",
+  },
+};
 
 const features = [
   {
@@ -63,8 +82,45 @@ export default async function Home() {
   } catch {
     // Auth failure should not crash the public landing page.
   }
+  const siteUrl = getSiteUrl();
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        name: SITE_NAME,
+        alternateName: ["Ainterv.com", "AI Interview"],
+        url: siteUrl,
+        description: SITE_DESCRIPTION,
+        inLanguage: "en",
+      },
+      {
+        "@type": "SoftwareApplication",
+        name: SITE_NAME,
+        applicationCategory: "EducationalApplication",
+        operatingSystem: "Web",
+        url: siteUrl,
+        description: SITE_DESCRIPTION,
+        slogan: SITE_TAGLINE,
+        offers: {
+          "@type": "Offer",
+          price: "0",
+          priceCurrency: "USD",
+        },
+      },
+      {
+        "@type": "Organization",
+        name: SITE_NAME,
+        url: siteUrl,
+      },
+    ],
+  };
   return (
     <main className="min-h-dvh overflow-x-clip bg-[#f6f5f0] text-[#17201e]">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <section className="safe-px relative mx-auto max-w-7xl px-4 pb-16 pt-4 sm:px-10 sm:pb-20 sm:pt-6 lg:px-16">
         <div className="pointer-events-none absolute -right-40 -top-32 h-[28rem] w-[28rem] rounded-full bg-[#d9f0e7] blur-3xl" />
         <nav className="relative z-10 flex items-center justify-between gap-3 border-b border-[#17201e]/10 pb-4 sm:pb-5">

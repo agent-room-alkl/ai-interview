@@ -24,9 +24,13 @@ export function Analytics() {
       window.localStorage.setItem("ainterv_utm", JSON.stringify({ ...getStoredUtm(), ...utm }));
     }
     window.dataLayer = window.dataLayer || [];
-    window.gtag = window.gtag || function gtag(..._args: unknown[]) {
-      window.dataLayer?.push(arguments);
-    };
+    // Official gtag bootstrap queues the Arguments object (not a rest array).
+    window.gtag =
+      window.gtag ||
+      function gtag() {
+        // eslint-disable-next-line prefer-rest-params -- required by gtag.js dataLayer contract
+        window.dataLayer?.push(arguments);
+      };
     window.gtag("js", new Date());
     window.gtag("config", measurementId, { send_page_view: false });
     const script = document.createElement("script");

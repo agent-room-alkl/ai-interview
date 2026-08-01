@@ -1672,10 +1672,10 @@ export default function InterviewRoom({
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/50 pb-2">
                 <div className="text-xs text-amber-900 font-medium">
-                  Your Score: <span className="text-sm font-bold text-amber-800">{lastScore}/100</span>
+                  Not passed yet · Your Score: <span className="text-sm font-bold text-amber-800">{lastScore}/100</span>
                 </div>
                 <div className="text-[10px] text-gray-500">
-                  Review the feedback, then choose an action:
+                  Below {PASS_THRESHOLD}/100 — improve this answer, or skip this question if you prefer.
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1712,7 +1712,7 @@ export default function InterviewRoom({
                     onClick={continueToNextQuestion}
                     className="min-h-9 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:opacity-85"
                   >
-                    Next question →
+                    Skip this question →
                   </button>
                 )}
               </div>

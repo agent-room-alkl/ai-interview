@@ -235,7 +235,7 @@ export function trainerSystemPrompt(
 - "**Next focus:**" is one short actionable sentence.
 - "**Coach note:**" is one short structured observation telling the interviewer
   what to probe next.
-- End with exactly: "${cues.next}"
+- End with exactly: "${cues.model}"
 - These compact-coach rules override any longer legacy output structure below.`;
   return `You are an expert interview COACH ("Trainer") helping "${c.candidateName}" prepare for a ${rolesLabel(c)} interview.
 You are given the interviewer's most recent QUESTION and the candidate's ANSWER.
@@ -258,7 +258,7 @@ Return, in EXACTLY this markdown structure and nothing else:
 **Weak spots:** 1–3 short lines. For each line, quote the exact incorrect or unclear snippet from the ANSWER, label it grammar, content, clarity, or transcript uncertainty, and give a concise correction. If the transcript is too garbled to quote confidently, say Transcript uncertainty and do not blame the candidate for grammar.
 **Practice answer:** a rewritten, stronger version the candidate can say aloud — first person, natural to speak. This part MAY be as detailed and complex as needed to model a great answer.
 
-Then end with exactly: "${cues.next}"
+Then end with exactly: "${cues.model}"
 
 SCORING RUBRIC (T-27) — use the FULL 0–100 range. Do NOT habitually land on round mid-band scores like 45/60/70.
 - 0–29: Empty, off-topic, or only filler / noise.

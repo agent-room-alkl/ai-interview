@@ -142,6 +142,9 @@ export default function InterviewRoom({
   const [lastScore, setLastScore] = useState<number | null>(null);
   // T-34 / T-20: keep the graded transcript so the candidate can edit ASR text
   // and re-score without re-speaking.
+  const [lastGradedTranscript, setLastGradedTranscript] = useState("");
+  const [editingTranscript, setEditingTranscript] = useState(false);
+  const [transcriptDraft, setTranscriptDraft] = useState("");
   // T-23: deadline is authoritative server state and cannot be reset by
   // refreshing, clearing browser storage, or opening another tab.
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -1005,11 +1008,18 @@ export default function InterviewRoom({
     });
   };
 
-  // Interviewer asks the first question on load when no interviewer turn exists.
-  // A resumed room can already contain a user/trainer turn, so checking only
-  // messages.length would leave it stuck after a failed first request.
+  // Ask on first load when there is no question yet, or when a resumed room
+  // ended on a completed round. If the latest turn is interviewer, preserve
+  // that current question instead of issuing a duplicate request.
   useEffect(() => {
-    if (!initialTurns.some((turn) => turn.speaker === "interviewer")) {
+    const latest = initialTurns.at(-1);
+    const needsNextQuestion =
+      latest?.speaker === "trainer" ||
+      (mode === "interview" && latest?.speaker === "user");
+    if (
+      !initialTurns.some((turn) => turn.speaker === "interviewer") ||
+      needsNextQuestion
+    ) {
       void runAgent("interviewer", {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -5,6 +5,7 @@ import { fulfillPaidCheckoutSession } from "@/lib/billing-fulfill";
 import { prisma } from "@/lib/prisma";
 import { Logo } from "@/components/Logo";
 import { getStripe, stripeConfigured } from "@/lib/stripe";
+import { BillingAnalytics } from "@/components/BillingAnalytics";
 
 export const metadata = {
   title: "Payment success",
@@ -27,6 +28,7 @@ export default async function BillingSuccessPage({
   const sessionId = params.session_id?.trim();
   let accessUntil: Date | null = null;
   let fulfilled = false;
+  let discounted = false;
 
   if (sessionId && stripeConfigured()) {
     try {
@@ -37,6 +39,7 @@ export default async function BillingSuccessPage({
         checkout.metadata?.userId === session.user.id
       ) {
         const result = await fulfillPaidCheckoutSession(checkout);
+        discounted = (checkout.total_details?.amount_discount ?? 0) > 0;
         if (result.outcome === "granted" || result.outcome === "already_fulfilled") {
           fulfilled = true;
           accessUntil = result.accessUntil;
@@ -57,6 +60,7 @@ export default async function BillingSuccessPage({
 
   return (
     <main className="min-h-dvh bg-[#f6f5f0] text-[#17201e]">
+      <BillingAnalytics fulfilled={fulfilled} discounted={discounted} />
       <div className="safe-px mx-auto max-w-xl px-4 py-12 sm:px-10">
         <Link href="/" className="inline-flex">
           <Logo />

@@ -8,6 +8,7 @@ import {
   SITE_NAME,
   getSiteUrl,
 } from "@/lib/site";
+import { Analytics } from "@/components/Analytics";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -85,6 +86,7 @@ export default function RootLayout({
         <body
           className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
         >
+          <Analytics />
           {children}
         </body>
       </html>

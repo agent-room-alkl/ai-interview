@@ -8,7 +8,19 @@ export type AccessPack = {
   days: number;
   amountCents: number;
   blurb: string;
+  /** Short feature bullets shown on pricing cards. */
+  features: string[];
 };
+
+/** Default / most popular pack on marketing + /pricing. */
+export const FEATURED_PACK_ID: PackId = "week";
+
+export const PACK_FEATURE_CORE = [
+  "Unlimited 10 / 20 / 30 min sessions while active",
+  "AI interviewer with natural voice",
+  "AI practice coach (trainer mode)",
+  "Résumé-aware questions & scoring",
+] as const;
 
 export const ACCESS_PACKS: Record<PackId, AccessPack> = {
   day: {
@@ -16,21 +28,35 @@ export const ACCESS_PACKS: Record<PackId, AccessPack> = {
     name: "1 day",
     days: 1,
     amountCents: 300,
-    blurb: "Unlimited practice for 24 hours. Stack anytime.",
+    blurb: "Sprint day — unlimited practice for 24 hours.",
+    features: [
+      ...PACK_FEATURE_CORE,
+      "Stack more days anytime",
+    ],
   },
   week: {
     id: "week",
     name: "1 week",
     days: 7,
     amountCents: 900,
-    blurb: "Seven days of unlimited 10/20/30 min sessions.",
+    blurb: "Most popular — a full week of focused prep.",
+    features: [
+      ...PACK_FEATURE_CORE,
+      "Best balance of time and price",
+      "Stack another week when you need it",
+    ],
   },
   month: {
     id: "month",
     name: "1 month",
     days: 30,
     amountCents: 1900,
-    blurb: "Best value — a full month of focused prep.",
+    blurb: "Long runway — a full month of unlimited sessions.",
+    features: [
+      ...PACK_FEATURE_CORE,
+      "Lowest cost per day",
+      "Stack packs for longer campaigns",
+    ],
   },
 };
 

@@ -2,8 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
+import { BuyPackButton } from "@/components/BuyPackButton";
 import { Logo } from "@/components/Logo";
-import { ACCESS_PACKS, formatUsd, PACK_IDS } from "@/lib/billing";
+import {
+  ACCESS_PACKS,
+  FEATURED_PACK_ID,
+  formatUsd,
+  PACK_IDS,
+} from "@/lib/billing";
 import {
   SITE_DEFAULT_TITLE,
   SITE_DESCRIPTION,
@@ -286,92 +292,6 @@ export default async function Home() {
         </div>
 
         <section
-          id="pricing"
-          className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
-        >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
-            Pricing
-          </p>
-          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
-            One free 10-minute trial. Then simple one-time packs.
-          </h2>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
-            New accounts get one free 10-minute session (20/30 min unlock after
-            purchase). Packs are one-time payments that stack onto your access
-            window — not subscriptions. While access is active, run unlimited
-            10 / 20 / 30 minute sessions.
-          </p>
-
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <article className="rounded-3xl border border-dashed border-[#17201e]/20 bg-white/40 p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#65736d]">
-                Free trial
-              </p>
-              <p className="mt-4 text-3xl font-semibold tracking-[-0.05em]">$0</p>
-              <p className="mt-1 text-sm text-[#65736d]">1× 10 minutes</p>
-              <p className="mt-4 text-sm leading-6 text-[#65736d]">
-                Once per account. No card required to try.
-              </p>
-            </article>
-            {PACK_IDS.map((id) => {
-              const pack = ACCESS_PACKS[id];
-              const highlight = id === "month";
-              return (
-                <article
-                  key={id}
-                  className={`rounded-3xl border p-5 ${
-                    highlight
-                      ? "border-[#17201e] bg-[#17201e] text-[#f6f5f0]"
-                      : "border-[#17201e]/10 bg-white/70"
-                  }`}
-                >
-                  <p
-                    className={`text-xs font-semibold uppercase tracking-[0.14em] ${
-                      highlight ? "text-[#d7f16a]" : "text-[#65736d]"
-                    }`}
-                  >
-                    {pack.name}
-                    {highlight ? " · best value" : ""}
-                  </p>
-                  <p className="mt-4 text-3xl font-semibold tracking-[-0.05em]">
-                    {formatUsd(pack.amountCents)}
-                  </p>
-                  <p
-                    className={`mt-1 text-sm ${
-                      highlight ? "text-[#a9bbb2]" : "text-[#65736d]"
-                    }`}
-                  >
-                    {pack.days} day{pack.days === 1 ? "" : "s"} access
-                  </p>
-                  <p
-                    className={`mt-4 text-sm leading-6 ${
-                      highlight ? "text-[#c5d4cd]" : "text-[#65736d]"
-                    }`}
-                  >
-                    {pack.blurb}
-                  </p>
-                </article>
-              );
-            })}
-          </div>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link
-              href="/pricing"
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#17201e] px-5 py-3 text-sm font-semibold text-[#f6f5f0]"
-            >
-              Buy a pack
-            </Link>
-            <Link
-              href={userId ? "/interview/new" : "/signup"}
-              className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#17201e]/15 px-5 py-3 text-sm font-semibold"
-            >
-              Start free trial
-            </Link>
-          </div>
-        </section>
-
-        <section
           id="guide"
           className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
         >
@@ -399,6 +319,119 @@ export default async function Home() {
               </li>
             ))}
           </ol>
+        </section>
+
+        <section
+          id="pricing"
+          className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
+            Pricing
+          </p>
+          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
+            One free 10-minute trial. Then simple one-time packs.
+          </h2>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
+            New accounts get one free 10-minute session. Packs are one-time
+            (not subscriptions) and stack. While access is active you get full
+            AI interviewer + practice coach on 10 / 20 / 30 minute sessions.
+          </p>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <article className="flex flex-col rounded-3xl border border-dashed border-[#17201e]/20 bg-white/40 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#65736d]">
+                Free trial
+              </p>
+              <p className="mt-4 text-3xl font-semibold tracking-[-0.05em]">$0</p>
+              <p className="mt-1 text-sm text-[#65736d]">1× 10 minutes</p>
+              <ul className="mt-4 flex-1 space-y-2 text-sm leading-6 text-[#65736d]">
+                <li>· One trial session per account</li>
+                <li>· AI interviewer (voice)</li>
+                <li>· AI practice coach</li>
+                <li>· Résumé-aware questions</li>
+                <li>· 20 / 30 min unlock after purchase</li>
+              </ul>
+              <Link
+                href={userId ? "/interview/new" : "/signup"}
+                className="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#17201e]/15 px-5 py-3 text-sm font-semibold"
+              >
+                Start free trial
+              </Link>
+            </article>
+            {PACK_IDS.map((id) => {
+              const pack = ACCESS_PACKS[id];
+              const highlight = id === FEATURED_PACK_ID;
+              return (
+                <article
+                  key={id}
+                  className={`flex flex-col rounded-3xl border p-5 ${
+                    highlight
+                      ? "border-[#17201e] bg-[#17201e] text-[#f6f5f0] shadow-[0_20px_50px_-28px_rgba(23,32,30,0.55)]"
+                      : "border-[#17201e]/10 bg-white/70"
+                  }`}
+                >
+                  <p
+                    className={`text-xs font-semibold uppercase tracking-[0.14em] ${
+                      highlight ? "text-[#d7f16a]" : "text-[#65736d]"
+                    }`}
+                  >
+                    {pack.name}
+                    {highlight ? " · most popular" : ""}
+                  </p>
+                  <p className="mt-4 text-3xl font-semibold tracking-[-0.05em]">
+                    {formatUsd(pack.amountCents)}
+                  </p>
+                  <p
+                    className={`mt-1 text-sm ${
+                      highlight ? "text-[#a9bbb2]" : "text-[#65736d]"
+                    }`}
+                  >
+                    {pack.days} day{pack.days === 1 ? "" : "s"} access · one-time
+                  </p>
+                  <ul
+                    className={`mt-4 flex-1 space-y-2 text-sm leading-6 ${
+                      highlight ? "text-[#c5d4cd]" : "text-[#65736d]"
+                    }`}
+                  >
+                    {pack.features.map((line) => (
+                      <li key={line}>· {line}</li>
+                    ))}
+                  </ul>
+                  <div className="mt-6">
+                    {userId ? (
+                      <BuyPackButton
+                        pack={id}
+                        label={`Buy ${pack.name} — ${formatUsd(pack.amountCents)}`}
+                        className={
+                          highlight
+                            ? "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#d7f16a] px-5 py-3 text-sm font-semibold text-[#17201e] disabled:opacity-60"
+                            : "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#17201e] px-5 py-3 text-sm font-semibold text-[#f6f5f0] disabled:opacity-60"
+                        }
+                      />
+                    ) : (
+                      <Link
+                        href={`/signup?next=/pricing`}
+                        className={
+                          highlight
+                            ? "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#d7f16a] px-5 py-3 text-sm font-semibold text-[#17201e]"
+                            : "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#17201e] px-5 py-3 text-sm font-semibold text-[#f6f5f0]"
+                        }
+                      >
+                        Buy {pack.name}
+                      </Link>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <p className="mt-4 text-xs leading-5 text-[#65736d]">
+            Prefer the full checkout page?{" "}
+            <Link href="/pricing" className="font-semibold underline underline-offset-4">
+              Open /pricing
+            </Link>
+            . Refunds available within 24 hours of purchase.
+          </p>
         </section>
 
         <section

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import {
   ACCESS_PACKS,
+  FEATURED_PACK_ID,
   formatUsd,
   hasActiveAccess,
   PACK_IDS,
@@ -104,13 +105,13 @@ export default async function PricingPage({
         <section className="mt-10 grid gap-4 md:grid-cols-3">
           {PACK_IDS.map((id) => {
             const pack = ACCESS_PACKS[id];
-            const highlight = id === "month";
+            const highlight = id === FEATURED_PACK_ID;
             return (
               <article
                 key={id}
                 className={`flex flex-col rounded-3xl border p-6 ${
                   highlight
-                    ? "border-[#17201e] bg-[#17201e] text-[#f6f5f0]"
+                    ? "border-[#17201e] bg-[#17201e] text-[#f6f5f0] shadow-[0_20px_50px_-28px_rgba(23,32,30,0.55)]"
                     : "border-[#17201e]/10 bg-white/70"
                 }`}
               >
@@ -120,22 +121,39 @@ export default async function PricingPage({
                   }`}
                 >
                   {pack.name}
+                  {highlight ? " · most popular" : ""}
                 </p>
                 <p className="mt-4 text-4xl font-semibold tracking-[-0.05em]">
                   {formatUsd(pack.amountCents)}
                 </p>
                 <p
-                  className={`mt-3 flex-1 text-sm leading-6 ${
+                  className={`mt-1 text-sm ${
+                    highlight ? "text-[#a9bbb2]" : "text-[#65736d]"
+                  }`}
+                >
+                  {pack.days} day{pack.days === 1 ? "" : "s"} · one-time
+                </p>
+                <p
+                  className={`mt-3 text-sm leading-6 ${
                     highlight ? "text-[#c2d0c9]" : "text-[#65736d]"
                   }`}
                 >
                   {pack.blurb}
                 </p>
+                <ul
+                  className={`mt-4 flex-1 space-y-2 text-sm leading-6 ${
+                    highlight ? "text-[#c2d0c9]" : "text-[#65736d]"
+                  }`}
+                >
+                  {pack.features.map((line) => (
+                    <li key={line}>· {line}</li>
+                  ))}
+                </ul>
                 <div className="mt-6">
                   {session?.user ? (
                     <BuyPackButton
                       pack={id}
-                      label={`Buy ${pack.name}`}
+                      label={`Buy ${pack.name} — ${formatUsd(pack.amountCents)}`}
                       className={
                         highlight
                           ? "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#d7f16a] px-5 py-3 text-sm font-semibold text-[#17201e] disabled:opacity-60"

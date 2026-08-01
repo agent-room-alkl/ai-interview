@@ -1030,8 +1030,8 @@ export default function InterviewRoom({
     typeof RTCPeerConnection !== "undefined";
 
   return (
-    <div className="safe-pt safe-px mx-auto flex h-dvh w-full max-w-6xl flex-col px-3 sm:px-6 lg:max-w-7xl lg:px-10">
-      <header className="flex flex-col gap-3 border-b border-gray-200 pb-3 pt-1 sm:flex-row sm:items-end sm:justify-between sm:pb-4">
+    <div className="safe-pt safe-px mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-hidden px-3 sm:px-6 lg:max-w-7xl lg:px-10">
+      <header className="flex shrink-0 flex-col gap-2 border-b border-gray-200 pb-2 pt-1 sm:flex-row sm:items-end sm:justify-between sm:pb-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
             {mode === "practice" ? "Practice room" : "Interview room"}
@@ -1086,7 +1086,7 @@ export default function InterviewRoom({
           at the top; selectable at the start and switchable mid-interview
           (next turn applies). Styled as a distinct control bar so it reads as
           an operable control rather than faint caption text. */}
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 sm:px-4">
+      <div className="mt-2 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 sm:px-4">
         <label
           htmlFor="expr-level"
           className="text-xs font-semibold uppercase tracking-wide text-gray-700"
@@ -1110,7 +1110,7 @@ export default function InterviewRoom({
       </div>
 
       {/* T-28: quiet-room / headphones tip — ambient noise is the #1 false-capture source. */}
-      <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+      <p className="mt-1 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] leading-4 text-amber-900">
         Find a quiet place to practice. Headphones recommended so the mic doesn&apos;t
         pick up the AI or room noise.
       </p>
@@ -1143,26 +1143,26 @@ export default function InterviewRoom({
           ? liveUser || (recording ? "🎙 Listening…" : "…")
           : latestUser || "Your answer will appear here";
         return (
-          <section className="mt-3 flex flex-1 flex-col gap-3 min-h-0" aria-label="Current interview exchange">
+          <section className="mt-2 grid min-h-0 shrink-0 grid-cols-1 gap-2 lg:grid-cols-3" aria-label="Current interview exchange">
             {/* Top: Current Question */}
-            <div className="shrink-0 flex flex-col rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 sm:px-4">
+            <div className="flex max-h-[25vh] min-h-0 flex-col overflow-y-auto rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 sm:px-4">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">Current question</p>
-              <div className="mt-1.5 overflow-y-auto max-h-24 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
+              <div className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
                 {lastQuestion || "Waiting for the first question…"}
               </div>
             </div>
             {/* Middle: Trainer content */}
-            <div className={`flex-1 flex flex-col min-h-0 rounded-xl border px-3 py-3 sm:px-4 ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+            <div className={`flex max-h-[25vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Trainer {aiSpeaking && speakingAgent === "trainer" ? "· speaking…" : ""}</p>
-              <div aria-live="polite" className="mt-1.5 flex-1 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5 pr-1">
+              <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(trainerText)}
                 {mode === "practice" && lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
               </div>
             </div>
             {/* Bottom: Your answer */}
-            <div className={`flex-1 flex flex-col min-h-0 rounded-xl border px-3 py-3 sm:px-4 ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
+            <div className={`flex max-h-[25vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Your answer</p>
-              <div aria-live="polite" className="mt-1.5 flex-1 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5 pr-1">
+              <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(answerText)}
               </div>
             </div>

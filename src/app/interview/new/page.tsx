@@ -25,7 +25,7 @@ export default async function NewInterviewPage() {
           Add your name and résumé, pick Practice or Interview, then choose a
           target role.
         </p>
-        <div className="max-w-2xl">
+        <div className="w-full">
           <CreateInterviewForm initialResumeText={profile?.resumeContext ?? ""} />
         </div>
       </div>

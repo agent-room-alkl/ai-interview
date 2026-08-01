@@ -131,6 +131,8 @@ export default function InterviewRoom({
   const [, setUsedWrittenIds] = useState<string[]>([]);
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
+  // Visible Pass handoff after a practice score of 75+ (silent — no trainer TTS).
+  const [showPassHandoff, setShowPassHandoff] = useState(false);
   // Legacy transcript editing helpers remain wired to the retry flow.
   const [lastGradedTranscript, setLastGradedTranscript] = useState("");
   const [editingTranscript, setEditingTranscript] = useState(false);
@@ -540,8 +542,14 @@ export default function InterviewRoom({
       const ac = new AbortController();
       chatAbortRef.current = ac;
       setBusy(true);
+      // Practice trainer scores must finish before we know whether to speak.
+      // Defer TTS for scored coaching so a pass (>=75) stays display-only.
+      const deferTrainerSpeech =
+        agent === "trainer" &&
+        mode === "practice" &&
+        opts.coachingStyle !== "model";
       cancelSpeakRef.current = false;
-      setSpeakingAgent(agent);
+      setSpeakingAgent(deferTrainerSpeech ? null : agent);
       const idx = messages.length + (opts.userText ? 1 : 0);
       // optimistic: append user turn locally
       if (opts.userText) {
@@ -583,27 +591,26 @@ export default function InterviewRoom({
             return copy;
           });
           // speak newly-completed sentences for low latency (markers never spoken)
-          const match = buffer.slice(spokenUpTo).match(/[^.!?]+[.!?]+/g);
-          if (match) {
-            for (const sentence of match) {
-              const clean = stripMarkers(sentence);
-              if (clean) enqueueSpeech(clean);
+          if (!deferTrainerSpeech) {
+            const match = buffer.slice(spokenUpTo).match(/[^.!?]+[.!?]+/g);
+            if (match) {
+              for (const sentence of match) {
+                const clean = stripMarkers(sentence);
+                if (clean) enqueueSpeech(clean);
+              }
+              spokenUpTo += match.join("").length;
             }
-            spokenUpTo += match.join("").length;
           }
         }
-        // speak any trailing text (minus control markers)
-        const tail = stripMarkers(buffer.slice(spokenUpTo));
-        if (tail) enqueueSpeech(tail);
-        finalizeSpeech();
         // Ensure the final rendered bubble carries no control markers.
+        const finalText = stripMarkers(buffer);
         setMessages((m) => {
           const copy = [...m];
-          copy[copy.length - 1] = { speaker: agent, text: stripMarkers(buffer) };
+          copy[copy.length - 1] = { speaker: agent, text: finalText };
           return copy;
         });
         if (agent === "interviewer") {
-          setLastQuestion(stripMarkers(buffer));
+          setLastQuestion(finalText);
           // T-13: interviewer decided to pose a written test question.
           const wm = buffer.match(WRITTEN_MARKER);
           const id = wm ? /ASK_WRITTEN:([a-z0-9_-]+)/i.exec(wm[0])?.[1] : null;
@@ -615,6 +622,10 @@ export default function InterviewRoom({
             setLastQuestion(q.prompt);
             setActiveWritten(q);
           }
+          // speak any trailing text (minus control markers)
+          const tail = stripMarkers(buffer.slice(spokenUpTo));
+          if (tail) enqueueSpeech(tail);
+          finalizeSpeech();
         } else if (
           agent === "trainer" &&
           mode === "practice" &&
@@ -624,7 +635,25 @@ export default function InterviewRoom({
           // P-02: a "See model answer" response (coachingStyle="model") has no
           // Score line — don't let parseScore()===null wipe the existing score
           // and hide the Try again / Skip / Continue controls.
-          setLastScore(parseScore(buffer));
+          const score = parseScore(buffer);
+          setLastScore(score);
+          if (score != null && score >= 75) {
+            // Pass: display-only feedback, no trainer TTS, then Pass handoff UI.
+            stopSpeaking();
+            setShowPassHandoff(true);
+          } else {
+            // Below the pass bar (or unscored): still read the coaching aloud.
+            if (finalText) {
+              setSpeakingAgent("trainer");
+              enqueueSpeech(finalText);
+              finalizeSpeech();
+            }
+            setShowPassHandoff(false);
+          }
+        } else {
+          const tail = stripMarkers(buffer.slice(spokenUpTo));
+          if (tail) enqueueSpeech(tail);
+          finalizeSpeech();
         }
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") return;
@@ -642,7 +671,7 @@ export default function InterviewRoom({
       }
       void idx;
     },
-    [interviewId, messages.length, mode, enqueueSpeech, finalizeSpeech],
+    [interviewId, messages.length, mode, enqueueSpeech, finalizeSpeech, stopSpeaking],
   );
 
   // T-12: clear the score gate whenever the candidate starts a fresh answer,
@@ -654,6 +683,8 @@ export default function InterviewRoom({
       return;
     }
     resetIdleReminders();
+    stopSpeaking();
+    setShowPassHandoff(false);
     setLastScore(null);
     setLastGradedTranscript("");
     setEditingTranscript(false);
@@ -662,20 +693,35 @@ export default function InterviewRoom({
     // clear its Trainer feedback and answer before the next question arrives.
     setMessages([]);
     void runAgent("interviewer", {});
-  }, [handleFinish, mode, questionLimit, questionsAsked, runAgent, resetIdleReminders]);
+  }, [
+    handleFinish,
+    mode,
+    questionLimit,
+    questionsAsked,
+    runAgent,
+    resetIdleReminders,
+    stopSpeaking,
+  ]);
 
   // Passing answers should flow into the next question automatically. Keep the
-  // completed Trainer feedback visible for a moment so the score is readable,
+  // completed Trainer feedback + Pass badge visible for 3s (no trainer TTS),
   // then advance without making the candidate repeat a question they passed.
   useEffect(() => {
-    if (mode !== "practice" || busy || activeWritten || lastScore == null || lastScore < 75) {
+    if (
+      mode !== "practice" ||
+      busy ||
+      activeWritten ||
+      lastScore == null ||
+      lastScore < 75 ||
+      !showPassHandoff
+    ) {
       return;
     }
     const timer = window.setTimeout(() => {
       continueToNextQuestion();
     }, 3000);
     return () => window.clearTimeout(timer);
-  }, [activeWritten, busy, continueToNextQuestion, lastScore, mode]);
+  }, [activeWritten, busy, continueToNextQuestion, lastScore, mode, showPassHandoff]);
 
   // T-01: 2-minute-silence nudge. Fires only when the candidate has NOT begun
   // answering (guarded by the arming effect below and re-checked here via refs).
@@ -744,6 +790,7 @@ export default function InterviewRoom({
         return;
       }
       setLastScore(null); // T-12: reset the gate for this new attempt
+      setShowPassHandoff(false);
       // T-18: empty / noise / filler-only capture — don't score it, just show
       // what was heard and ask the candidate to say it again.
       if (isTrivialAnswer(t)) {
@@ -791,6 +838,7 @@ export default function InterviewRoom({
 
   const prepareRetry = useCallback(() => {
     setLastScore(null);
+    setShowPassHandoff(false);
     setEditingTranscript(false);
     setTranscriptDraft("");
     resetIdleReminders();
@@ -1203,6 +1251,15 @@ export default function InterviewRoom({
               <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(trainerText)}
                 {mode === "practice" && lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
+                {showPassHandoff && lastScore != null && lastScore >= 75 ? (
+                  <div
+                    role="status"
+                    className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-900"
+                  >
+                    <span aria-hidden="true">✓</span>
+                    Pass — next question in 3s
+                  </div>
+                ) : null}
               </div>
             </div>
             {/* Bottom: Your answer */}
@@ -1216,7 +1273,19 @@ export default function InterviewRoom({
         );
       })()}
 
-      {mode === "practice" && lastScore != null && !activeWritten && (
+      {mode === "practice" && lastScore != null && !activeWritten && showPassHandoff && lastScore >= 75 && (
+        <div
+          role="status"
+          className="mt-2 shrink-0 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-center"
+        >
+          <p className="text-sm font-bold uppercase tracking-wide text-emerald-900">Pass</p>
+          <p className="mt-1 text-xs text-emerald-800">
+            Score {lastScore}/100 — advancing to the next question…
+          </p>
+        </div>
+      )}
+
+      {mode === "practice" && lastScore != null && !activeWritten && !(showPassHandoff && lastScore >= 75) && (
         <div className="mt-2 shrink-0 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
           {editingTranscript ? (
             <div className="flex flex-col gap-2">

@@ -339,9 +339,27 @@ export function looksLikeInterviewerAnswer(text: string): boolean {
  * After a completed (and, in practice, passed) round we must send an explicit
  * next-question nudge, or the model often produces no new question.
  */
+export type BuildInterviewerOptions = {
+  /** Candidate skipped (or otherwise forced advance) — ignore practice score gate. */
+  forceNextQuestion?: boolean;
+};
+
+function nextQuestionNudge(
+  candidateName: string,
+  opts?: { skipped?: boolean; previousQuestion?: string },
+): string {
+  const skipBit = opts?.skipped
+    ? " The candidate chose to SKIP the previous question — do NOT re-ask it."
+    : "";
+  const prev = opts?.previousQuestion?.replace(/\s+/g, " ").trim().slice(0, 160);
+  const prevBit = prev ? ` Previous question to avoid: "${prev}"` : "";
+  return `[SYSTEM] Ask the next interview question now for ${candidateName}. Reply with ONE concise spoken interview question ending with "?". Do NOT write a first-person answer, STAR story, practice answer, or multi-paragraph experience narrative. Do not re-ask the previous question, do not coach, and do not recap the score.${skipBit}${prevBit}`;
+}
+
 export function buildInterviewerMessages(
   c: EngineContext,
   transcript: TranscriptTurn[],
+  opts?: BuildInterviewerOptions,
 ): EngineMessage[] {
   if (transcript.length === 0) {
     return [
@@ -385,6 +403,7 @@ export function buildInterviewerMessages(
   const cut = Math.max(0, rounds.length - INTERVIEWER_RECENT_ROUNDS);
   const older = rounds.slice(0, cut);
   const recent = rounds.slice(cut);
+  const forceNext = opts?.forceNextQuestion === true;
 
   if (older.length) {
     const lines = older.map((r, i) => {
@@ -430,8 +449,10 @@ export function buildInterviewerMessages(
     });
   } else if (latest.a) {
     // Completed candidate answer. Practice mode waits for a pass before the
-    // next question; interview mode always continues after an answer.
+    // next question unless the candidate explicitly skips / forces advance.
+    // Interview mode always continues after an answer.
     const practiceBlocked =
+      !forceNext &&
       c.mode === "practice" &&
       (latest.score == null || latest.score < PASS_THRESHOLD);
     if (practiceBlocked) {
@@ -443,9 +464,21 @@ export function buildInterviewerMessages(
     } else {
       messages.push({
         role: "user",
-        content: `[SYSTEM] Ask the next interview question now for ${c.candidateName}. Reply with ONE concise spoken interview question ending with "?". Do NOT write a first-person answer, STAR story, practice answer, or multi-paragraph experience narrative. Do not re-ask the previous question, do not coach, and do not recap the score.`,
+        content: nextQuestionNudge(c.candidateName, {
+          skipped: forceNext,
+          previousQuestion: latest.q,
+        }),
       });
     }
+  } else if (forceNext) {
+    // Idle / unanswered skip — still move on to a new question.
+    messages.push({
+      role: "user",
+      content: nextQuestionNudge(c.candidateName, {
+        skipped: true,
+        previousQuestion: latest.q,
+      }),
+    });
   } else {
     // Unanswered current question — client normally will not call here.
     messages.push({

@@ -140,7 +140,10 @@ export async function POST(
           body.question ?? "",
           body.answer ?? body.userText ?? "",
         )
-      : buildInterviewerMessages(ctx, transcript);
+      : buildInterviewerMessages(ctx, transcript, {
+          // Skip / forced advance must not hit the practice "wait for pass" gate.
+          forceNextQuestion: body.forceNextQuestion === true,
+        });
 
   const persistAgentTurn = async (text: string) => {
     // T-13: strip written-test markers before persist so reloads stay clean.

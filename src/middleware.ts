@@ -1,12 +1,13 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
+// Billing APIs (/api/billing/*) auth in-route and return JSON 401.
+// Do not list them here: Clerk protect() rewrites unauthenticated API
+// calls to HTML 404, which surfaced as "Network error starting checkout."
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/interview(.*)",
   "/billing(.*)",
   "/api/interview(.*)",
-  "/api/billing/checkout(.*)",
-  "/api/billing/refund(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

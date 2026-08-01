@@ -15,6 +15,7 @@ import {
 import {
   interviewQuestionLimit,
   PASS_THRESHOLD,
+  coachingCues,
   type ExpressionLevel,
 } from "@/lib/interview-engine";
 import { shouldForceCompleteOnZero } from "@/lib/interview-complete";
@@ -119,6 +120,7 @@ function isRepeatRequest(text: string): boolean {
 export default function InterviewRoom({
   interviewId,
   mode,
+  language,
   targetRole,
   durationMinutes,
   deadlineAt,
@@ -126,6 +128,7 @@ export default function InterviewRoom({
 }: {
   interviewId: string;
   mode: "practice" | "interview";
+  language: string | null;
   targetRole: string;
   durationMinutes: number;
   deadlineAt: string | null;
@@ -796,7 +799,16 @@ export default function InterviewRoom({
             // Below the pass bar (or unscored): still read the coaching aloud.
             if (finalText) {
               setSpeakingAgent("trainer");
-              enqueueSpeech(finalText);
+              // Keep the localized try-again cue in its own TTS request. A
+              // long markdown coaching payload can otherwise be truncated or
+              // lose its final sentence even when the cue is visible in UI.
+              const cue = coachingCues(language ?? undefined).model;
+              const cueIndex = finalText.lastIndexOf(cue);
+              const spokenBody = cueIndex >= 0
+                ? finalText.slice(0, cueIndex).trim()
+                : finalText;
+              if (spokenBody) enqueueSpeech(spokenBody);
+              enqueueSpeech(cue);
               finalizeSpeech();
             }
             setShowPassHandoff(false);
@@ -822,7 +834,7 @@ export default function InterviewRoom({
       }
       void idx;
     },
-    [interviewId, messages.length, mode, enqueueSpeech, finalizeSpeech, stopSpeaking],
+    [interviewId, language, messages.length, mode, enqueueSpeech, finalizeSpeech, stopSpeaking],
   );
 
   // T-12: clear the score gate whenever the candidate starts a fresh answer,

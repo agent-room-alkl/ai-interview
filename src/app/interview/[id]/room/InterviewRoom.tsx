@@ -40,9 +40,12 @@ function renderRich(text: string) {
 const WRITTEN_MARKER = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/gi;
 const stripMarkers = (s: string) =>
   s.replace(WRITTEN_MARKER, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-// Parse "**Score:** NN/100" out of a trainer message.
+// Parse "**Score:** NN/100" (or plain "Score: NN/100") out of a trainer message.
 function parseScore(text: string): number | null {
-  const m = text.match(/score[^0-9]{0,12}(\d{1,3})\s*\/\s*100/i);
+  const m =
+    text.match(/\*\*Score:\*\*\s*(\d{1,3})\s*\/\s*100/i) ||
+    text.match(/score\s*[:：]?\s*(\d{1,3})\s*\/\s*100/i) ||
+    text.match(/score[^0-9]{0,16}(\d{1,3})\s*\/\s*100/i);
   if (!m) return null;
   const n = parseInt(m[1], 10);
   return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
@@ -783,6 +786,27 @@ export default function InterviewRoom({
     finalizeSpeech();
   }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
 
+  // Resume / re-entry: interviewer must actually SPEAK the active question.
+  // Browsers often block autoplay until a gesture — we try immediately and
+  // retry once on the first pointer/key event if speech never started.
+  const resumeSpeechPendingRef = useRef<string | null>(null);
+  const resumeSpeechDoneRef = useRef(false);
+  const initialQuestionRef = useRef(
+    initialTurns.filter((turn) => turn.speaker === "interviewer").at(-1)?.text ?? "",
+  );
+  const speakInterviewerNow = useCallback(
+    (text: string) => {
+      const q = stripMarkers(text).trim();
+      if (!q || busyRef.current) return;
+      resetIdleReminders();
+      cancelSpeakRef.current = false;
+      setSpeakingAgent("interviewer");
+      enqueueSpeech(q);
+      finalizeSpeech();
+    },
+    [enqueueSpeech, finalizeSpeech, resetIdleReminders],
+  );
+
   // T-01: ask the interviewer for a small hint — does not advance the question.
   const requestHint = useCallback(() => {
     if (busyRef.current) return;
@@ -1095,23 +1119,17 @@ export default function InterviewRoom({
     });
   };
 
-  // Resume rules:
-  // - No interviewer yet → ask the first question.
-  // - Latest interviewer round already has a user answer + pass score, and no
-  //   newer interviewer → request the next question (ignore later idle nudges).
-  // - Latest interviewer still open / failed score → stay; do not restart at Q1.
+  // Resume rules (dashboard re-entry / refresh):
+  // - No interviewer yet → ask the first question (spoken via stream TTS).
+  // - Practice pass on the current round → advance + speak the next question.
+  // - Otherwise stay on the current question and SPEAK it so the room feels live.
   // - Interview mode + latest user turn → interviewer should respond.
   useEffect(() => {
-    const hasInterviewer = initialTurns.some((turn) => turn.speaker === "interviewer");
-    if (!hasInterviewer) {
-      void runAgent("interviewer", {});
-      return;
-    }
-    if (mode === "interview" && initialTurns.at(-1)?.speaker === "user") {
-      void runAgent("interviewer", {});
-      return;
-    }
-    if (mode === "practice") {
+    const currentQuestion =
+      initialTurns.filter((turn) => turn.speaker === "interviewer").at(-1)?.text ?? "";
+    const hasInterviewer = currentQuestion.trim().length > 0;
+
+    const roundMeta = (() => {
       let lastInterviewerIdx = -1;
       for (let i = initialTurns.length - 1; i >= 0; i -= 1) {
         if (initialTurns[i].speaker === "interviewer") {
@@ -1119,43 +1137,12 @@ export default function InterviewRoom({
           break;
         }
       }
-      if (lastInterviewerIdx >= 0) {
-        let passed = false;
-        for (let i = lastInterviewerIdx + 1; i < initialTurns.length; i += 1) {
-          const turn = initialTurns[i];
-          if (turn.speaker === "interviewer") break;
-          if (turn.speaker === "trainer") {
-            const score = parseScore(turn.text);
-            if (score != null && score >= PASS_THRESHOLD) passed = true;
-          }
-        }
-        if (passed) {
-          // Passed round already persisted — advance without replaying pass TTS.
-          setClearExchangeUI(true);
-          setLastScore(null);
-          setShowPassHandoff(false);
-          void runAgent("interviewer", {});
-        }
+      if (lastInterviewerIdx < 0) {
+        return { passed: false, latestTrainer: undefined as Msg | undefined, latestUser: undefined as Msg | undefined };
       }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Restore the latest trainer score / graded answer from history on load.
-  useEffect(() => {
-    // Only restore a failing/unscored gate on the CURRENT interviewer round —
-    // a pass should advance (see resume effect above), not re-lock the UI.
-    let lastInterviewerIdx = -1;
-    for (let i = initialTurns.length - 1; i >= 0; i -= 1) {
-      if (initialTurns[i].speaker === "interviewer") {
-        lastInterviewerIdx = i;
-        break;
-      }
-    }
-    if (lastInterviewerIdx >= 0) {
+      let passed = false;
       let latestTrainer: Msg | undefined;
       let latestUser: Msg | undefined;
-      let passed = false;
       for (let i = lastInterviewerIdx + 1; i < initialTurns.length; i += 1) {
         const turn = initialTurns[i];
         if (turn.speaker === "interviewer") break;
@@ -1166,25 +1153,85 @@ export default function InterviewRoom({
         }
         if (turn.speaker === "user") latestUser = turn;
       }
-      if (latestTrainer && !passed) {
-        setLastScore(parseScore(latestTrainer.text));
-      }
-      if (latestUser) setLastGradedTranscript(latestUser.text);
-    }
-  }, [initialTurns]);
+      return { passed, latestTrainer, latestUser };
+    })();
 
-  // Mobile browsers keep a new AudioContext suspended until a user gesture.
-  // Resume the TTS playback context on the first tap/keypress.
+    // Restore failing/unscored gate only — a pass advances below.
+    if (roundMeta.latestTrainer && !roundMeta.passed) {
+      setLastScore(parseScore(roundMeta.latestTrainer.text));
+    }
+    if (roundMeta.latestUser) setLastGradedTranscript(roundMeta.latestUser.text);
+
+    if (!hasInterviewer) {
+      resumeSpeechPendingRef.current = "__await_next__";
+      void runAgent("interviewer", {});
+      return;
+    }
+    if (mode === "interview" && initialTurns.at(-1)?.speaker === "user") {
+      resumeSpeechPendingRef.current = "__await_next__";
+      void runAgent("interviewer", {});
+      return;
+    }
+    if (mode === "practice" && roundMeta.passed) {
+      // Passed round already persisted — advance without replaying pass TTS.
+      setClearExchangeUI(true);
+      setLastScore(null);
+      setShowPassHandoff(false);
+      resumeSpeechPendingRef.current = "__await_next__";
+      void runAgent("interviewer", {});
+      return;
+    }
+
+    // Open or failed round: interviewer starts from the current question and speaks it.
+    resumeSpeechPendingRef.current = currentQuestion;
+    const timer = window.setTimeout(() => {
+      if (resumeSpeechDoneRef.current || busyRef.current) return;
+      speakInterviewerNow(currentQuestion);
+    }, 350);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Once interviewer TTS is actually playing, don't gesture-replay the same line.
   useEffect(() => {
-    const resume = () => {
-      const ctx = audioCtxRef.current;
+    if (aiSpeaking && speakingAgent === "interviewer") {
+      resumeSpeechDoneRef.current = true;
+    }
+  }, [aiSpeaking, speakingAgent]);
+
+  // After a streamed next question lands, retry TTS if autoplay was blocked.
+  // Ignore the mount snapshot so we don't re-speak the pre-advance question
+  // while the next interviewer turn is still in flight.
+  useEffect(() => {
+    if (resumeSpeechPendingRef.current !== "__await_next__") return;
+    if (busy || resumeSpeechDoneRef.current || aiSpeakingRef.current) return;
+    const q = lastQuestion.trim();
+    if (!q) return;
+    if (q === stripMarkers(initialQuestionRef.current).trim()) return;
+    resumeSpeechPendingRef.current = q;
+    speakInterviewerNow(q);
+  }, [busy, lastQuestion, speakInterviewerNow]);
+
+  // Unlock AudioContext on first gesture; if resume speech never started, speak now.
+  useEffect(() => {
+    const unlockAndMaybeSpeak = () => {
+      const ctx = getAudioCtx();
       if (ctx && ctx.state === "suspended") void ctx.resume().catch(() => {});
+      if (resumeSpeechDoneRef.current || busyRef.current || aiSpeakingRef.current) return;
+      const pending = resumeSpeechPendingRef.current;
+      const q =
+        !pending || pending === "__await_next__"
+          ? lastQuestionRef.current.trim()
+          : stripMarkers(pending).trim();
+      if (!q) return;
+      resumeSpeechDoneRef.current = true;
+      speakInterviewerNow(q);
     };
-    window.addEventListener("pointerdown", resume);
-    window.addEventListener("keydown", resume);
+    window.addEventListener("pointerdown", unlockAndMaybeSpeak);
+    window.addEventListener("keydown", unlockAndMaybeSpeak);
     return () => {
-      window.removeEventListener("pointerdown", resume);
-      window.removeEventListener("keydown", resume);
+      window.removeEventListener("pointerdown", unlockAndMaybeSpeak);
+      window.removeEventListener("keydown", unlockAndMaybeSpeak);
       clearSilenceTimer();
       stopSpeaking();
       const ctx = audioCtxRef.current;

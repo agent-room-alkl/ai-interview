@@ -52,7 +52,10 @@ export async function POST(
           prefix_padding_ms: 300,
           // Longer silence before a turn is closed, so a brief mid-answer pause
           // doesn't chop the utterance (pairs with the generous SUBMIT_IDLE_MS).
-          silence_duration_ms: 800,
+          // Keep short thinking pauses inside the same utterance. The client
+          // also waits before submitting, but this prevents the transcript
+          // itself from ending a turn too aggressively.
+          silence_duration_ms: 2500,
         },
       },
     },

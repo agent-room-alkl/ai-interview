@@ -238,7 +238,10 @@ export default function InterviewRoom({
   // Text is still batched into ~sentence chunks to keep request count low, but
   // each chunk's audio is streamed and scheduled onto one continuous timeline,
   // so playback starts at the first bytes and never stops between chunks.
-  const TTS_MIN_CHUNK = 80;
+  // Avoid cutting a normal first question at an arbitrary 80-character
+  // boundary. That created a network gap between TTS requests and sounded
+  // like the interviewer stuttered at the start of the room.
+  const TTS_MIN_CHUNK = 320;
   const SAMPLE_RATE = 24000; // OpenAI pcm output rate
   const SCHED_LEAD = 0.12; // seconds of head-start when (re)starting from idle
   const BLOCK_BYTES = 9600; // ~200 ms of 24 kHz 16-bit mono before scheduling
@@ -876,8 +879,6 @@ export default function InterviewRoom({
       },
       onSpeechStart: () => {
         if (cancelled || mutedRef.current) return;
-        // Barge-in: the candidate started talking — cut the AI's TTS.
-        if (aiSpeakingRef.current) stopSpeakingRef.current();
         clearSilenceTimer();
         // T-01: they've started — cancel any pending silence nudge and reset the
         // cycle so a later pause starts fresh.
@@ -886,6 +887,11 @@ export default function InterviewRoom({
       },
       onInterim: (text) => {
         if (cancelled || mutedRef.current) return;
+        // Wait for actual recognized speech before interrupting TTS. Some
+        // browsers emit speech_started for the AI audio leaking through the
+        // mic before echo cancellation has settled, which used to cut off the
+        // opening question after a fraction of a second.
+        if (aiSpeakingRef.current && text.trim()) stopSpeakingRef.current();
         setInterim(text);
         setRecording(true);
       },

@@ -29,6 +29,21 @@ function redactPrivateData(value: string): string {
     .replace(/^\s*\d{1,5}\s+[^\n]{1,80}\b(?:street|st\.?|road|rd\.?|avenue|ave\.?|lane|ln\.?|drive|dr\.?|boulevard|blvd\.?)\b[^\n]*$/gim, "");
 }
 
+const RESUME_SECTIONS: Array<{ title: string; pattern: RegExp }> = [
+  { title: "Personal profile", pattern: /^(?:personal profile|profile|summary|professional summary|about me|objective|个人信息|个人简介|简介|概述)\s*:?$/i },
+  { title: "Education", pattern: /^(?:education|academic background|qualifications|学历|教育经历|教育背景)\s*:?$/i },
+  { title: "Work experience", pattern: /^(?:work experience|professional experience|employment history|experience|工作经验|工作经历|任职经历)\s*:?$/i },
+  { title: "Skills", pattern: /^(?:skills|technical skills|core skills|technologies|competencies|技能|专业技能|技术栈)\s*:?$/i },
+  { title: "Languages", pattern: /^(?:languages|language skills|语言|语言能力)\s*:?$/i },
+  { title: "Projects", pattern: /^(?:projects|selected projects|项目|项目经历)\s*:?$/i },
+  { title: "Certifications", pattern: /^(?:certifications|certificates|证书|认证)\s*:?$/i },
+  { title: "Achievements", pattern: /^(?:achievements|awards|荣誉|成就)\s*:?$/i },
+];
+
+function sectionTitle(line: string): string | null {
+  return RESUME_SECTIONS.find((section) => section.pattern.test(line))?.title ?? null;
+}
+
 /**
  * Turn uploaded/pasted résumé text into the small, editable context used by
  * role matching and both interview agents. This is intentionally deterministic
@@ -50,7 +65,22 @@ export function standardizeResumeText(input: string): string {
   // Collapse repeated lines and excessive blank structure while preserving
   // section headings and useful bullet points for the user to review.
   const unique = lines.filter((line, index) => lines.indexOf(line) === index);
-  const compact = unique.join("\n").slice(0, MAX_RESUME_CONTEXT_CHARS).trim();
+  const sections: string[] = ["# Resume background"];
+  let activeSection = "Personal profile";
+  sections.push(`## ${activeSection}`);
+  for (const line of unique) {
+    const heading = sectionTitle(line);
+    if (heading) {
+      if (heading !== activeSection) {
+        activeSection = heading;
+        sections.push(`\n## ${activeSection}`);
+      }
+      continue;
+    }
+    const content = /^[-*•]\s+/.test(line) ? line.replace(/^[*•]\s+/, "- ") : line;
+    sections.push(content);
+  }
+  const compact = sections.join("\n").slice(0, MAX_RESUME_CONTEXT_CHARS).trim();
   return compact;
 }
 

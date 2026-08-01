@@ -1143,25 +1143,28 @@ export default function InterviewRoom({
           ? liveUser || (recording ? "🎙 Listening…" : "…")
           : latestUser || "Your answer will appear here";
         return (
-          <section className="mt-3 grid gap-2 lg:grid-cols-3" aria-label="Current interview exchange">
-            <div className="min-h-[7.5rem] rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 sm:min-h-32 sm:px-4">
+          <section className="mt-3 flex flex-1 flex-col gap-3 min-h-0" aria-label="Current interview exchange">
+            {/* Top: Current Question */}
+            <div className="shrink-0 flex flex-col rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 sm:px-4">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">Current question</p>
-              <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
+              <div className="mt-1.5 overflow-y-auto max-h-24 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
                 {lastQuestion || "Waiting for the first question…"}
-              </p>
+              </div>
             </div>
-            <div className={`min-h-[7.5rem] rounded-xl border px-3 py-3 sm:min-h-32 sm:px-4 ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+            {/* Middle: Trainer content */}
+            <div className={`flex-1 flex flex-col min-h-0 rounded-xl border px-3 py-3 sm:px-4 ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Trainer {aiSpeaking && speakingAgent === "trainer" ? "· speaking…" : ""}</p>
-              <p aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
+              <div aria-live="polite" className="mt-1.5 flex-1 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5 pr-1">
                 {renderRich(trainerText)}
-              </p>
-              {mode === "practice" && lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
+                {mode === "practice" && lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
+              </div>
             </div>
-            <div className={`min-h-[7.5rem] rounded-xl border px-3 py-3 sm:min-h-32 sm:px-4 ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
+            {/* Bottom: Your answer */}
+            <div className={`flex-1 flex flex-col min-h-0 rounded-xl border px-3 py-3 sm:px-4 ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Your answer</p>
-              <p aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
+              <div aria-live="polite" className="mt-1.5 flex-1 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5 pr-1">
                 {renderRich(answerText)}
-              </p>
+              </div>
             </div>
           </section>
         );

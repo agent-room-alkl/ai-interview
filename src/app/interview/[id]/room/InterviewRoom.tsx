@@ -148,6 +148,9 @@ export default function InterviewRoom({
   // Shown when autoplay policy blocks interviewer TTS until a tap/click.
   const [speechUnlockNeeded, setSpeechUnlockNeeded] = useState(false);
   const speechUnlockNeededRef = useRef(false);
+  // Tracks which question text was confirmed as scheduled for audible playback.
+  // UI always offers "Hear question" until this matches the current question.
+  const [heardQuestionKey, setHeardQuestionKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [lastQuestion, setLastQuestion] = useState<string>(
@@ -266,7 +269,13 @@ export default function InterviewRoom({
   }, [busy]);
   useEffect(() => {
     lastQuestionRef.current = lastQuestion;
-  }, [lastQuestion]);
+    const q = lastQuestion.trim();
+    // New question → require a fresh audible play (auto or Hear button).
+    if (q && heardQuestionKey !== q) {
+      setSpeechUnlockNeeded(true);
+      resumeSpeechDoneRef.current = false;
+    }
+  }, [lastQuestion, heardQuestionKey]);
   useEffect(() => {
     expressionLevelRef.current = expressionLevel;
     // Persist so a switch here (or the role-page choice) survives a reload.
@@ -451,8 +460,8 @@ export default function InterviewRoom({
       setAiSpeaking(false);
       return;
     }
-    setAiSpeaking(true);
     let scheduledAny = false;
+    let markedSpeaking = false;
     try {
       while (!cancelSpeakRef.current) {
         const next = ttsQueueRef.current.shift();
@@ -460,7 +469,14 @@ export default function InterviewRoom({
         try {
           const before = nextStartRef.current;
           await streamChunk(ctx, next);
-          if (nextStartRef.current > before) scheduledAny = true;
+          if (nextStartRef.current > before) {
+            scheduledAny = true;
+            // Only claim "speaking" after real PCM was scheduled on a running context.
+            if (!markedSpeaking && ctx.state === "running") {
+              markedSpeaking = true;
+              setAiSpeaking(true);
+            }
+          }
         } catch (e) {
           if (e instanceof Error && e.name === "AbortError") break;
           /* one chunk failed — keep going with the rest */
@@ -468,20 +484,15 @@ export default function InterviewRoom({
       }
     } finally {
       drainingRef.current = false;
-      if (scheduledAny && ctx.state === "running") {
-        setSpeechUnlockNeeded(false);
+      if (scheduledAny && ctx.state === "running" && markedSpeaking) {
         if (speakingAgentRef.current === "interviewer") {
           resumeSpeechDoneRef.current = true;
+          const q = lastQuestionRef.current.trim();
+          if (q) setHeardQuestionKey(q);
+          // Keep unlock banner until we've scheduled audible interviewer audio
+          // after a user gesture path; autoplay success also clears it.
+          setSpeechUnlockNeeded(false);
         }
-      } else if (!cancelSpeakRef.current && ttsQueueRef.current.length + (ttsPendingRef.current ? 1 : 0) > 0) {
-        setSpeechUnlockNeeded(true);
-      } else if (!scheduledAny) {
-        // TTS failed or produced silence — offer a manual retry.
-        setSpeechUnlockNeeded(true);
-        setAiSpeaking(false);
-        setSpeakingAgent(null);
-      }
-      if (!cancelSpeakRef.current && scheduledAny) {
         // Keep aiSpeaking true until the scheduled audio has actually drained.
         const remainMs = Math.max(0, (nextStartRef.current - ctx.currentTime) * 1000) + 80;
         endTimerRef.current = setTimeout(() => {
@@ -491,6 +502,11 @@ export default function InterviewRoom({
             setSpeakingAgent(null);
           }
         }, remainMs);
+      } else {
+        // TTS failed, empty, or still suspended — offer a manual retry.
+        if (!cancelSpeakRef.current) setSpeechUnlockNeeded(true);
+        setAiSpeaking(false);
+        if (!scheduledAny) setSpeakingAgent(null);
       }
     }
   }, [ensureAudioRunning, streamChunk]);
@@ -1314,14 +1330,6 @@ export default function InterviewRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Only treat speech as "done" once interviewer audio is actually playing.
-  useEffect(() => {
-    if (aiSpeaking && speakingAgent === "interviewer") {
-      resumeSpeechDoneRef.current = true;
-      setSpeechUnlockNeeded(false);
-    }
-  }, [aiSpeaking, speakingAgent]);
-
   // After a streamed next question lands, retry TTS if autoplay was blocked.
   // Ignore the mount snapshot so we don't re-speak the pre-advance question
   // while the next interviewer turn is still in flight.
@@ -1475,24 +1483,40 @@ export default function InterviewRoom({
         </div>
       )}
 
-      {speechUnlockNeeded && !aiSpeaking && (
-        <div className="mt-2 flex shrink-0 flex-col items-stretch gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs leading-5 text-indigo-950 sm:text-sm">
-            {resumeSpeechPendingRef.current === "__await_next__" && busy
-              ? "Loading the next interviewer question…"
-              : "Browser audio is blocked until you interact — tap to hear the interviewer."}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              void unlockAndSpeakInterviewer();
-            }}
-            className="min-h-10 shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
-          >
-            Tap to hear interviewer
-          </button>
-        </div>
-      )}
+      {(() => {
+        const q = lastQuestion.trim();
+        const loadingNext =
+          resumeSpeechPendingRef.current === "__await_next__" && busy;
+        // Always offer a manual play control until this question was actually
+        // scheduled for playback. Autoplay often fails silently on re-entry.
+        const needsHear =
+          !!q &&
+          !loadingNext &&
+          !aiSpeaking &&
+          !activeWritten &&
+          (speechUnlockNeeded || heardQuestionKey !== q);
+        if (!needsHear && !loadingNext) return null;
+        return (
+          <div className="mt-2 flex shrink-0 flex-col items-stretch gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs leading-5 text-indigo-950 sm:text-sm">
+              {loadingNext
+                ? "Loading the next interviewer question…"
+                : "Tap to hear the interviewer read this question aloud."}
+            </p>
+            {!loadingNext ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void unlockAndSpeakInterviewer();
+                }}
+                className="min-h-10 shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+              >
+                Hear question
+              </button>
+            ) : null}
+          </div>
+        );
+      })()}
 
       {(() => {
         const userSpeaking = recording || interim || hasPendingAnswer;

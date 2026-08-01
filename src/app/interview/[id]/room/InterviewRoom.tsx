@@ -605,6 +605,28 @@ export default function InterviewRoom({
       });
   }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
 
+  const handlePause = useCallback(() => {
+    if (finishing || leavingRef.current) return;
+    leavingRef.current = true;
+    setFinishing(true);
+    clearSilenceTimer();
+    clearIdleReminder();
+    stopSpeaking();
+    chatAbortRef.current?.abort();
+    setBusy(false);
+    realtimeRef.current?.close();
+    realtimeRef.current = null;
+    void fetch(`/api/interview/${interviewId}/pause`, { method: "POST" })
+      .then((response) => {
+        if (response.ok) router.push("/dashboard");
+        else throw new Error("pause failed");
+      })
+      .catch(() => {
+        leavingRef.current = false;
+        setFinishing(false);
+      });
+  }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
+
   const handleTimeExpired = useCallback(() => {
     if (finishing || leavingRef.current) return;
     leavingRef.current = true;
@@ -1433,11 +1455,12 @@ export default function InterviewRoom({
           <button
             type="button"
             disabled={finishing}
-            onClick={handleFinish}
+            onClick={handlePause}
             className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 text-xs font-semibold text-white disabled:opacity-60"
           >
-            {finishing ? "Finishing…" : "Leave"}
+            {finishing ? "Pausing…" : "Pause & leave"}
           </button>
+          <button type="button" disabled={finishing} onClick={handleFinish} className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-800 disabled:opacity-60">End interview</button>
         </div>
       </header>
 

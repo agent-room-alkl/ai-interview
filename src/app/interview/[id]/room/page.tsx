@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import InterviewRoom from "./InterviewRoom";
+import PausedInterview from "./PausedInterview";
 
 export default async function RoomPage({
   params,
@@ -20,11 +21,14 @@ export default async function RoomPage({
   if (!interview || interview.userId !== session.user.id) redirect("/dashboard");
   if (!interview.targetRole) redirect(`/interview/${id}/roles`);
   if (interview.status === "completed") redirect(`/interview/${id}/report`);
+  if (interview.pausedAt) {
+    return <PausedInterview interviewId={id} remainingSeconds={interview.pausedRemainingSeconds ?? 0} />;
+  }
 
   // Start the selected timer window exactly once on the server so refresh does
   // not reset countdown (practice soft timer + formal hard stop share startedAt).
   // Concurrent room loads are safe: only the request that still sees null wins.
-  if (!interview.deadlineAt) {
+  if (!interview.deadlineAt && !interview.pausedAt) {
     const startedAt = new Date();
     const deadlineAt = new Date(
       startedAt.getTime() + interview.durationMinutes * 60 * 1000,

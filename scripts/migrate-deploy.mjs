@@ -6,9 +6,21 @@ import { spawn } from "node:child_process";
 
 const TIMEOUT_MS = Number(process.env.PRISMA_MIGRATE_TIMEOUT_MS || 60_000);
 
+// Prisma migrations need a session connection for advisory locks. Vercel's
+// DATABASE_URL may point at Supabase/PgBouncer, while the platform also
+// exposes POSTGRES_URL_NON_POOLING for schema changes.
+const migrationEnv = { ...process.env };
+const directUrl =
+  process.env.POSTGRES_URL_NON_POOLING || process.env.DIRECT_URL || "";
+if (directUrl) {
+  const url = new URL(directUrl);
+  if (!url.searchParams.has("schema")) url.searchParams.set("schema", "ai_interview");
+  migrationEnv.DATABASE_URL = url.toString();
+}
+
 const child = spawn("npx", ["prisma", "migrate", "deploy"], {
   stdio: "inherit",
-  env: process.env,
+  env: migrationEnv,
   shell: process.platform === "win32",
 });
 

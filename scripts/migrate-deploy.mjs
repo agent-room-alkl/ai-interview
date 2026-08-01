@@ -12,7 +12,11 @@ const TIMEOUT_MS = Number(process.env.PRISMA_MIGRATE_TIMEOUT_MS || 60_000);
 const migrationEnv = { ...process.env };
 const directUrl =
   process.env.POSTGRES_URL_NON_POOLING || process.env.DIRECT_URL || "";
-if (directUrl) migrationEnv.DATABASE_URL = directUrl;
+if (directUrl) {
+  const url = new URL(directUrl);
+  if (!url.searchParams.has("schema")) url.searchParams.set("schema", "ai_interview");
+  migrationEnv.DATABASE_URL = url.toString();
+}
 
 const child = spawn("npx", ["prisma", "migrate", "deploy"], {
   stdio: "inherit",

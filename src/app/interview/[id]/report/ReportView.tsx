@@ -2,6 +2,7 @@
 // T-09: Scorecard UI + downloads (HTML file + print-to-PDF).
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { Logo } from "@/components/Logo";
 
 type Dimension = { name: string; score: number; feedback: string };
 type Report = {
@@ -77,6 +78,10 @@ export default function ReportView({
 
   return (
     <div className="safe-px mx-auto max-w-3xl px-4 py-6 sm:p-6 print:p-0">
+      <div className="mb-5 flex items-center justify-between print:hidden">
+        <Link href="/" className="inline-flex"><Logo compact /></Link>
+        <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-900">Back to dashboard</Link>
+      </div>
       <div className="flex flex-col gap-4 border-b-2 border-gray-900 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold sm:text-2xl">Interview Report</h1>

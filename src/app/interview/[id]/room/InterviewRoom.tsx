@@ -1257,7 +1257,7 @@ export default function InterviewRoom({
         })()}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain py-4 sm:space-y-5 sm:py-6">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-1 py-4 pb-10 sm:space-y-5 sm:py-6 sm:pb-12">
         {/* T-03: full turn-by-turn transcript, collapsed by default. */}
         <div>
           <button
@@ -1442,7 +1442,7 @@ export default function InterviewRoom({
 
       {/* T-03: bottom control bar — mic status, reminder options, and the core
           meeting controls (mute, Done, Leave) integrated in one place. */}
-      <div className="border-t border-gray-100 pt-2 sm:pt-3">
+      <div className="shrink-0 border-t border-gray-100 pt-2 sm:pt-3">
       {/* T-16: explicit voice-input status so the user always knows whether the
           mic is capturing them, waiting, processing — or paused for the AI. */}
       {supported ? (
@@ -1589,7 +1589,7 @@ function TypeFallback({
 }) {
   const [val, setVal] = useState("");
   return (
-    <div className="safe-pb border-t border-gray-200 bg-[#f6f5f0] pt-3">
+    <div className="safe-pb shrink-0 border-t border-gray-200 bg-[#f6f5f0] pt-3">
       {writtenQuestions.length > 0 && (
         <div className="mb-3">
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">

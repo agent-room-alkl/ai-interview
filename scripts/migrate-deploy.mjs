@@ -14,19 +14,18 @@ const child = spawn("npx", ["prisma", "migrate", "deploy"], {
 
 const timer = setTimeout(() => {
   console.error(
-    `[migrate-deploy] timed out after ${TIMEOUT_MS}ms — continuing build. ` +
-      "Apply pending migrations with a direct (non-pooled) DATABASE_URL if schema is behind.",
+    `[migrate-deploy] timed out after ${TIMEOUT_MS}ms — failing build. ` +
+      "Apply pending migrations with a direct (non-pooled) DATABASE_URL, then redeploy.",
   );
   child.kill("SIGTERM");
-  // Don't fail the build; app may already have schema from manual SQL.
-  process.exit(0);
+  process.exit(1);
 }, TIMEOUT_MS);
 
 child.on("exit", (code, signal) => {
   clearTimeout(timer);
   if (signal) {
     console.error(`[migrate-deploy] exited from signal ${signal}`);
-    process.exit(0);
+    process.exit(1);
     return;
   }
   if (code === 0) {
@@ -34,8 +33,8 @@ child.on("exit", (code, signal) => {
     return;
   }
   console.error(
-    `[migrate-deploy] prisma migrate deploy exited ${code}. Continuing build; ` +
-      "fix DB schema if runtime Prisma errors mention missing columns/tables.",
+    `[migrate-deploy] prisma migrate deploy exited ${code}. Failing build; ` +
+      "fix the database schema and redeploy.",
   );
-  process.exit(0);
+  process.exit(1);
 });

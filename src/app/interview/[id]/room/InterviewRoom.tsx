@@ -629,18 +629,21 @@ export default function InterviewRoom({
     }
     const deadline = Date.parse(deadlineAt);
     let finished = false;
+    let timer: number | null = null;
     const update = () => {
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       setTimeLeft(remaining);
       if (shouldForceCompleteOnZero(remaining, finished)) {
         finished = true;
-        window.clearInterval(timer);
+        if (timer) window.clearInterval(timer);
         handleTimeExpired();
       }
     };
     update();
-    const timer = window.setInterval(update, 1000);
-    return () => window.clearInterval(timer);
+    if (!finished) timer = window.setInterval(update, 1000);
+    return () => {
+      if (timer) window.clearInterval(timer);
+    };
   }, [deadlineAt, handleTimeExpired]);
 
   // ---------- Chat (streaming text from an agent) ----------

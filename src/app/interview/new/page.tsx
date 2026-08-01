@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { CreateInterviewForm } from "@/app/interview/new/CreateInterviewForm";
 
 export default async function NewInterviewPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  const profile = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { resumeContext: true },
+  });
 
   return (
     <main className="min-h-dvh bg-[#f6f5f0] text-[#17201e]">
@@ -21,7 +26,7 @@ export default async function NewInterviewPage() {
           target role.
         </p>
         <div className="max-w-2xl">
-          <CreateInterviewForm />
+          <CreateInterviewForm initialResumeText={profile?.resumeContext ?? ""} />
         </div>
       </div>
     </main>

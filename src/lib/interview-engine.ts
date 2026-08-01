@@ -2,6 +2,7 @@
 // Interviewer and Trainer agents. Framework-agnostic; consumed by the chat route.
 // T-12/T-13: trainer now scores each answer; interviewer can pose written tests.
 import { SAMPLE_WRITTEN_QUESTIONS } from "./written-questions";
+import { MAX_RESUME_CONTEXT_CHARS } from "./resume-parse";
 
 export type Mode = "practice" | "interview";
 
@@ -110,9 +111,9 @@ export interface TranscriptTurn {
 
 const sharedContext = (c: EngineContext) => `Candidate name: ${c.candidateName}
 Target role(s): ${rolesLabel(c)}
-Résumé (verbatim, may be truncated):
+Résumé background (standardized, privacy-filtered, may be truncated):
 """
-${c.resumeText.slice(0, 8000)}
+${c.resumeText.slice(0, MAX_RESUME_CONTEXT_CHARS)}
 """`;
 
 export function interviewerSystemPrompt(c: EngineContext): string {

@@ -671,6 +671,18 @@ export default function InterviewRoom({
   );
   const [usedSuggestionIds, setUsedSuggestionIds] = useState<string[]>([]);
 
+  // Keep the room focused on the active question. A new interviewer message
+  // starts a fresh turn; everything before it belongs to the previous
+  // question and should no longer compete for space in the live room.
+  const currentTurnMessages = useMemo(() => {
+    const latestQuestionIndex = messages.findLastIndex(
+      (message) => message.speaker === "interviewer",
+    );
+    return latestQuestionIndex >= 0
+      ? messages.slice(latestQuestionIndex)
+      : messages;
+  }, [messages]);
+
   const askSuggested = useCallback(
     async (id: string, question: string) => {
       if (busyRef.current) return;
@@ -1079,14 +1091,14 @@ export default function InterviewRoom({
       )}
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain py-4 sm:space-y-5 sm:py-6">
-        {messages.map((m, i) => {
+        {currentTurnMessages.map((m, i) => {
           const isUser = m.speaker === "user";
           const aiActive =
             aiSpeaking &&
             speakingAgent === m.speaker &&
             (m.speaker === "interviewer" || m.speaker === "trainer");
           const isLastOfSpeaker =
-            messages.findLastIndex((x) => x.speaker === m.speaker) === i;
+            currentTurnMessages.findLastIndex((x) => x.speaker === m.speaker) === i;
           const showWave = Boolean(aiActive && isLastOfSpeaker);
           return (
             <div
@@ -1265,7 +1277,7 @@ export default function InterviewRoom({
       {/* T-16: explicit voice-input status so the user always knows whether the
           mic is capturing them, waiting, processing — or paused for the AI. */}
       {supported ? (
-        <div className="flex items-center gap-2 border-t border-gray-100 px-1 pt-2 text-xs sm:pt-3">
+        <div className="mt-3 flex items-center gap-2 border-t border-gray-100 px-1 pt-3 text-xs">
           {(() => {
             let dot = "bg-gray-300";
             let label = "Ready — start speaking, or type below";
@@ -1342,7 +1354,7 @@ function TypeFallback({
 }) {
   const [val, setVal] = useState("");
   return (
-    <div className="safe-pb border-t border-gray-200 bg-[#f6f5f0] pt-3">
+    <div className="safe-pb mt-3 border-t border-gray-200 bg-[#f6f5f0] pt-3">
       {writtenQuestions.length > 0 && (
         <div className="mb-3">
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">

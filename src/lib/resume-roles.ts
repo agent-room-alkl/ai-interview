@@ -3,6 +3,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 import { model } from "@/lib/ai";
+import { MAX_RESUME_CONTEXT_CHARS } from "@/lib/resume-parse";
 
 export const RoleSuggestionSchema = z.object({
   language: z
@@ -57,7 +58,7 @@ Return ONLY the structured object.`;
 export async function suggestRoles(
   resumeText: string,
 ): Promise<RoleSuggestions> {
-  const trimmed = resumeText.slice(0, 12_000); // guard against huge résumés
+  const trimmed = resumeText.slice(0, MAX_RESUME_CONTEXT_CHARS);
   const { object } = await generateObject({
     model,
     schema: RoleSuggestionSchema,

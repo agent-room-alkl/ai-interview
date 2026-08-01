@@ -1,5 +1,59 @@
 import mammoth from "mammoth";
 
+export const MAX_RESUME_CONTEXT_CHARS = 6000;
+
+function stripHtml(value: string): string {
+  return value
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/p\s*>|<\/div\s*>|<\/li\s*>|<\/h[1-6]\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"');
+}
+
+function redactPrivateData(value: string): string {
+  return value
+    // Email addresses.
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "")
+    // International and common local phone formats.
+    .replace(/(?<!\d)(?:\+?\d[\d\s().-]{7,}\d)(?!\d)/g, "")
+    // Labeled contact/address lines, without removing a person's name.
+    .replace(/^\s*(?:phone|mobile|tel|telephone|email|e-mail|address|地址|电话|手机|邮箱)\s*[:：].*$/gim, "")
+    // Street-address-shaped lines (number + street suffix).
+    .replace(/^\s*\d{1,5}\s+[^\n]{1,80}\b(?:street|st\.?|road|rd\.?|avenue|ave\.?|lane|ln\.?|drive|dr\.?|boulevard|blvd\.?)\b[^\n]*$/gim, "");
+}
+
+/**
+ * Turn uploaded/pasted résumé text into the small, editable context used by
+ * role matching and both interview agents. This is intentionally deterministic
+ * so private contact details never need to reach an AI model first.
+ */
+export function standardizeResumeText(input: string): string {
+  const redacted = redactPrivateData(stripHtml(input));
+  const lines = redacted
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/^[•·▪◦]\s*/, "- ")
+        .replace(/[ \t]+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean);
+
+  // Collapse repeated lines and excessive blank structure while preserving
+  // section headings and useful bullet points for the user to review.
+  const unique = lines.filter((line, index) => lines.indexOf(line) === index);
+  const compact = unique.join("\n").slice(0, MAX_RESUME_CONTEXT_CHARS).trim();
+  return compact;
+}
+
 /**
  * Extract plain text from an uploaded résumé file (PDF or DOCX).
  *
@@ -39,9 +93,21 @@ export async function parseResumeFile(
       return { text };
     }
 
+    if (name.endsWith(".html") || name.endsWith(".htm") || file.type === "text/html") {
+      const text = stripHtml(buffer.toString("utf8")).trim();
+      if (!text) return { text: "", error: "Could not extract text from that HTML file." };
+      return { text };
+    }
+
+    if (name.endsWith(".txt") || file.type === "text/plain") {
+      const text = buffer.toString("utf8").trim();
+      if (!text) return { text: "", error: "Could not extract text from that text file." };
+      return { text };
+    }
+
     return {
       text: "",
-      error: "Unsupported file type. Upload a PDF or DOCX, or paste your résumé.",
+      error: "Unsupported file type. Upload a PDF, HTML, DOCX, or TXT file, or paste your résumé.",
     };
   } catch (err) {
     console.error("resume parse failed", err);

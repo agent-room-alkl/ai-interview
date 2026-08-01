@@ -1657,9 +1657,14 @@ export default function InterviewRoom({
         const interviewerSpeaking = aiSpeaking && speakingAgent === "interviewer";
         const trainerSpeaking = aiSpeaking && speakingAgent === "trainer";
         return (
-          <section className="mt-2 grid min-h-0 shrink-0 grid-cols-1 gap-2 lg:flex-1 lg:auto-rows-fr lg:grid-cols-3" aria-label="Current interview exchange">
+          <section
+            className={`mt-2 grid min-h-0 grid-cols-1 gap-2 lg:auto-rows-fr lg:grid-cols-3 ${
+              activeWritten ? "shrink-0" : "shrink-0 lg:flex-1"
+            }`}
+            aria-label="Current interview exchange"
+          >
             {/* Top: Current Question */}
-            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${interviewerSpeaking ? "border-indigo-400 bg-indigo-100" : "border-indigo-200 bg-indigo-50"}`}>
+            <div className={`flex min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${activeWritten ? "max-h-[16vh] lg:max-h-[18vh]" : "max-h-[30vh] lg:max-h-none"} ${interviewerSpeaking ? "border-indigo-400 bg-indigo-100" : "border-indigo-200 bg-indigo-50"}`}>
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
                   Current question{interviewerSpeaking ? " · speaking" : ""}
@@ -1674,7 +1679,7 @@ export default function InterviewRoom({
               </div>
             </div>
             {/* Middle: Trainer content */}
-            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${trainerSpeaking ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+            <div className={`flex min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${activeWritten ? "max-h-[16vh] lg:max-h-[18vh]" : "max-h-[30vh] lg:max-h-none"} ${trainerSpeaking ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
                   Trainer{trainerSpeaking ? " · speaking" : ""}
@@ -1696,7 +1701,7 @@ export default function InterviewRoom({
               </div>
             </div>
             {/* Bottom: Your answer */}
-            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
+            <div className={`flex min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${activeWritten ? "max-h-[16vh] lg:max-h-[18vh]" : "max-h-[30vh] lg:max-h-none"} ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
                   Your answer{userSpeaking ? " · speaking" : ""}
@@ -1811,7 +1816,7 @@ export default function InterviewRoom({
       )}
 
       {activeWritten ? (
-        <div className="mt-2">
+        <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2">
           <QuestionCard
             interviewId={interviewId}
             question={activeWritten}

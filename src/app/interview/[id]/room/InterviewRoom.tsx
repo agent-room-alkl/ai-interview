@@ -44,9 +44,23 @@ function renderRich(text: string) {
 
 
 // T-13: the interviewer embeds [[ASK_WRITTEN:<id>]] to pose a written test.
-const WRITTEN_MARKER = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/gi;
-const stripMarkers = (s: string) =>
-  s.replace(WRITTEN_MARKER, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+// IMPORTANT: never reuse a module-level /g regex — lastIndex leaks and can leave
+// markers visible in Current question after .match() + .replace().
+const WRITTEN_ID_RE = /\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/i;
+function extractWrittenId(text: string): string | null {
+  const m = WRITTEN_ID_RE.exec(text);
+  return m?.[1] ?? null;
+}
+function stripMarkers(s: string): string {
+  return s
+    .replace(/\[\[ASK_WRITTEN:[a-z0-9_-]+\]\]/gi, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+function displayTurnText(speaker: Speaker, text: string): string {
+  return speaker === "user" ? text : stripMarkers(text);
+}
 
 /** TTS + Current-question text for a written item (prompt + choice labels). */
 function spokenWrittenText(q: WrittenQuestion): string {
@@ -63,16 +77,32 @@ function spokenWrittenText(q: WrittenQuestion): string {
 
 /** Resolve interviewer turn text into what should be spoken / shown for Repeat. */
 function resolveInterviewerSpeakText(raw: string): string {
-  const wm = raw.match(/\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/i);
-  if (wm) {
-    const q = SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === wm[1]);
+  const id = extractWrittenId(raw);
+  if (id) {
+    const q = SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id);
     if (q) {
-      const lead = stripMarkers(raw);
-      const body = spokenWrittenText(q);
-      return [lead, body].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+      // Current question should be the real prompt, not lead-in + raw marker.
+      return spokenWrittenText(q);
     }
   }
   return stripMarkers(raw);
+}
+
+function restoreUnansweredWritten(turns: Msg[]): WrittenQuestion | null {
+  let lastInterviewerIdx = -1;
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    if (turns[i].speaker === "interviewer") {
+      lastInterviewerIdx = i;
+      break;
+    }
+  }
+  if (lastInterviewerIdx < 0) return null;
+  const id = extractWrittenId(turns[lastInterviewerIdx].text);
+  if (!id) return null;
+  for (let i = lastInterviewerIdx + 1; i < turns.length; i += 1) {
+    if (turns[i].speaker === "user") return null;
+  }
+  return SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id) ?? null;
 }
 // Parse "**Score:** NN/100" (or plain "Score: NN/100") out of a trainer message.
 function parseScore(text: string): number | null {
@@ -163,7 +193,14 @@ export default function InterviewRoom({
   initialTurns: Msg[];
 }) {
   const router = useRouter();
-  const [messages, setMessages] = useState<Msg[]>(initialTurns);
+  // Strip control markers from bubbles immediately so bfcache/re-entry never
+  // paints [[ASK_WRITTEN:…]] into the room UI.
+  const [messages, setMessages] = useState<Msg[]>(() =>
+    initialTurns.map((t) => ({
+      speaker: t.speaker,
+      text: displayTurnText(t.speaker, t.text),
+    })),
+  );
   const questionLimit = interviewQuestionLimit(durationMinutes);
   const questionsAsked = messages.filter((m) => m.speaker === "interviewer").length;
   const progress = Math.min(questionsAsked, questionLimit);
@@ -190,32 +227,11 @@ export default function InterviewRoom({
   const [lastQuestion, setLastQuestion] = useState<string>(() => {
     const raw =
       initialTurns.filter((t) => t.speaker === "interviewer").at(-1)?.text ?? "";
-    const wm = raw.match(/\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/i);
-    if (wm) {
-      const q = SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === wm[1]);
-      // Prefer prompt body for Current question; lead-in alone hid the real ask.
-      if (q) return spokenWrittenText(q);
-    }
-    return stripMarkers(raw);
+    return resolveInterviewerSpeakText(raw);
   });
-  const [activeWritten, setActiveWritten] = useState<WrittenQuestion | null>(() => {
-    // Restore unanswered written card after refresh / resume.
-    let lastInterviewerIdx = -1;
-    for (let i = initialTurns.length - 1; i >= 0; i -= 1) {
-      if (initialTurns[i].speaker === "interviewer") {
-        lastInterviewerIdx = i;
-        break;
-      }
-    }
-    if (lastInterviewerIdx < 0) return null;
-    const raw = initialTurns[lastInterviewerIdx].text;
-    const wm = raw.match(/\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/i);
-    if (!wm) return null;
-    for (let i = lastInterviewerIdx + 1; i < initialTurns.length; i += 1) {
-      if (initialTurns[i].speaker === "user") return null; // already answered
-    }
-    return SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === wm[1]) ?? null;
-  });
+  const [activeWritten, setActiveWritten] = useState<WrittenQuestion | null>(() =>
+    restoreUnansweredWritten(initialTurns),
+  );
   const [, setUsedWrittenIds] = useState<string[]>([]);
   const writtenCountRef = useRef(
     initialTurns.filter(
@@ -693,6 +709,30 @@ export default function InterviewRoom({
       });
   }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
 
+  // Accidental browser Back should Pause cleanly (not dump a half-restored room).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = { aintervRoom: interviewId };
+    window.history.pushState(token, "", window.location.href);
+    const onPopState = () => {
+      if (leavingRef.current) return;
+      // Re-arm so a second Back after failed pause still lands here.
+      window.history.pushState(token, "", window.location.href);
+      handlePause();
+    };
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (leavingRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, [handlePause, interviewId]);
+
   const handleTimeExpired = useCallback(() => {
     if (finishing || leavingRef.current) return;
     leavingRef.current = true;
@@ -824,11 +864,9 @@ export default function InterviewRoom({
           return copy;
         });
         if (agent === "interviewer") {
-          setLastQuestion(finalText);
           setClearExchangeUI(false);
           // T-13: interviewer decided to pose a written test question.
-          const wm = buffer.match(WRITTEN_MARKER);
-          const id = wm ? /ASK_WRITTEN:([a-z0-9_-]+)/i.exec(wm[0])?.[1] : null;
+          const id = extractWrittenId(buffer);
           const q = id ? SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id) : null;
           // speak any trailing lead-in (minus control markers)
           const tail = stripMarkers(buffer.slice(spokenUpTo));
@@ -843,6 +881,9 @@ export default function InterviewRoom({
             setActiveWritten(q);
             // Catalog prompt was never in the stream — speak it after the lead-in.
             if (spoken) enqueueSpeech(spoken);
+          } else {
+            // Never leave markers in Current question (stripMarkers is defensive).
+            setLastQuestion(finalText);
           }
           finalizeSpeech();
         } else if (
@@ -1672,7 +1713,7 @@ export default function InterviewRoom({
                 <SpeakingIndicator active={interviewerSpeaking} tone="interviewer" />
               </div>
               <div className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
-                {lastQuestion ||
+                {stripMarkers(lastQuestion) ||
                   (busy || clearExchangeUI
                     ? "Getting the next question…"
                     : "Waiting for the first question…")}

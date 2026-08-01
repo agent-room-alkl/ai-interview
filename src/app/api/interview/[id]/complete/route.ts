@@ -25,11 +25,23 @@ export async function POST(
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
+  // A pause wins if it is recorded before completion. This also protects the
+  // server from a timer callback that was already queued when the user paused.
+  if (interview.pausedAt) {
+    return NextResponse.json({ error: "paused" }, { status: 409 });
+  }
+
   if (interview.status !== "completed") {
-    await prisma.interview.update({
-      where: { id },
+    const completed = await prisma.interview.updateMany({
+      where: { id, status: { not: "completed" }, pausedAt: null },
       data: { status: "completed" },
     });
+    if (completed.count === 0) {
+      const current = await prisma.interview.findUnique({ where: { id } });
+      if (current?.pausedAt) {
+        return NextResponse.json({ error: "paused" }, { status: 409 });
+      }
+    }
   }
 
   // Best-effort report so Dashboard can show a score / View report.

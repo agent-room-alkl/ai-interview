@@ -14,8 +14,6 @@ import {
 } from "@/lib/written-questions";
 import type { ExpressionLevel } from "@/lib/interview-engine";
 import { QuestionCard } from "./QuestionCard";
-import { SpeakerAvatar } from "./SpeakerAvatar";
-import { SpeakingIndicator } from "./SpeakingIndicator";
 import {
   connectRealtimeSTT,
   type RealtimeSTTController,
@@ -92,7 +90,6 @@ export default function InterviewRoom({
   interviewId,
   mode,
   candidateName,
-  candidateImageUrl,
   targetRole,
   durationMinutes,
   deadlineAt,
@@ -1134,61 +1131,6 @@ export default function InterviewRoom({
         </div>
       )}
 
-      {/* T-03: meeting-room stage — three speaker tiles (interviewer / trainer /
-          candidate) with a clear active-speaker state, like a video call. In a
-          formal interview the trainer tile is dimmed ("Observing") since it never
-          interrupts. */}
-      <div className="mt-3 grid grid-cols-3 gap-2 sm:gap-3">
-        {(
-          [
-            {
-              role: "interviewer",
-              name: "Interviewer",
-              sub: "AI interviewer",
-              active: aiSpeaking && speakingAgent === "interviewer",
-              dim: false,
-            },
-            {
-              role: "trainer",
-              name: "Trainer",
-              sub: mode === "practice" ? "AI coach" : "Observing",
-              active: aiSpeaking && speakingAgent === "trainer",
-              dim: mode !== "practice",
-            },
-            {
-              role: "user",
-              name: candidateName,
-              sub: "You",
-              active: recording || interim.length > 0,
-              dim: false,
-            },
-          ] as const
-        ).map((tile) => (
-          <div
-            key={tile.role}
-            className={`relative flex flex-col items-center gap-2 rounded-2xl border p-3 text-center transition sm:p-4 ${
-              tile.active
-                ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-300"
-                : "border-gray-200 bg-white"
-            } ${tile.dim ? "opacity-60" : ""}`}
-            aria-current={tile.active ? "true" : undefined}
-          >
-            <SpeakerAvatar
-              role={tile.role}
-              name={tile.role === "user" ? candidateName : undefined}
-              imageUrl={tile.role === "user" ? candidateImageUrl : undefined}
-              speaking={tile.active}
-              size={56}
-            />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-gray-900">{tile.name}</p>
-              <p className="truncate text-[11px] text-gray-500">{tile.sub}</p>
-            </div>
-            <SpeakingIndicator active={tile.active} tone={tile.role === "user" ? "user" : "ai"} />
-          </div>
-        ))}
-      </div>
-
       {(() => {
         const userSpeaking = recording || interim || hasPendingAnswer;
         const liveUser = `${answerBufferRef.current}${
@@ -1204,20 +1146,20 @@ export default function InterviewRoom({
           <section className="mt-3 grid gap-2 lg:grid-cols-3" aria-label="Current interview exchange">
             <div className="min-h-[7.5rem] rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 sm:min-h-32 sm:px-4">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">Current question</p>
-              <p className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-words text-sm leading-5 text-indigo-950 sm:text-[15px] sm:leading-6">
+              <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
                 {lastQuestion || "Waiting for the first question…"}
               </p>
             </div>
             <div className={`min-h-[7.5rem] rounded-xl border px-3 py-3 sm:min-h-32 sm:px-4 ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Trainer {aiSpeaking && speakingAgent === "trainer" ? "· speaking…" : ""}</p>
-              <p aria-live="polite" className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-words text-sm leading-5 text-gray-900 sm:text-[15px] sm:leading-6">
+              <p aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(trainerText)}
               </p>
               {mode === "practice" && lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
             </div>
             <div className={`min-h-[7.5rem] rounded-xl border px-3 py-3 sm:min-h-32 sm:px-4 ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Your answer</p>
-              <p aria-live="polite" className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-words text-sm leading-5 text-gray-900 sm:text-[15px] sm:leading-6">
+              <p aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(answerText)}
               </p>
             </div>

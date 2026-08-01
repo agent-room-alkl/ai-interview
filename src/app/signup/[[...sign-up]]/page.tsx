@@ -1,15 +1,11 @@
 import Link from "next/link";
 import { SignUp } from "@clerk/nextjs";
+import { Logo } from "@/components/Logo";
 
 export default function SignupPage() {
   return (
     <main className="min-h-dvh bg-[#f6f5f0] px-4 py-8 text-[#17201e] sm:px-6">
-      <Link
-        href="/"
-        className="inline-flex min-h-11 items-center font-semibold tracking-[-0.03em]"
-      >
-        ← ai interview
-      </Link>
+      <Link href="/" className="inline-flex min-h-11 items-center"><Logo compact /></Link>
       <div className="mx-auto mt-12 flex max-w-md flex-col items-center sm:mt-20">
         <p className="self-start text-xs font-semibold uppercase tracking-[0.2em] text-[#e57b4f]">
           Start your practice

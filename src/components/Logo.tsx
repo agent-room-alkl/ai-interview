@@ -10,7 +10,7 @@ export function Logo({
   const logoText = (
     <span
       className={`inline-flex items-baseline font-semibold tracking-[-0.07em] ${
-        compact ? "text-xl sm:text-2xl" : "text-3xl sm:text-4xl"
+        compact ? "text-lg sm:text-xl" : "text-2xl sm:text-3xl"
       }`}
       aria-label="Ainterv.com"
     >
@@ -19,7 +19,7 @@ export function Logo({
         ı
         <span
           aria-hidden="true"
-          className="absolute left-1/2 top-[-0.3em] h-[0.24em] w-[0.24em] -translate-x-1/2 rounded-full bg-[#d7f16a] ring-1 ring-[#17201e]/10"
+          className="absolute left-1/2 top-[-0.08em] h-[0.22em] w-[0.22em] -translate-x-1/2 rounded-full bg-[#d7f16a] ring-1 ring-[#17201e]/10"
         />
       </span>
       <span className="text-[#17201e]">nterv.com</span>

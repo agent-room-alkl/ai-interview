@@ -1639,9 +1639,12 @@ export default function InterviewRoom({
         </div>
       )}
 
+      {/* Scrollable main column: header + bottom chrome stay fixed in the
+          h-dvh shell so mobile never clips trainer/written content with no
+          way to reach it. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
       {/* T-14/T-19: expression level — how elaborate the AI talks (not role
-          difficulty). Kept OUTSIDE the scrolling transcript so it stays visible
-          at the top; selectable at the start and switchable mid-interview
+          difficulty). Selectable at the start and switchable mid-interview
           (next turn applies). Styled as a distinct control bar so it reads as
           an operable control rather than faint caption text. */}
       <div className="mt-2 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 sm:px-4">
@@ -1870,20 +1873,37 @@ export default function InterviewRoom({
         </div>
       )}
 
+      {/* Spacer so last content isn't glued to the sticky bottom chrome. */}
+      <div className="h-3 shrink-0" aria-hidden />
+      </div>
+
       {activeWritten ? (
-        <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2">
-          <QuestionCard
-            interviewId={interviewId}
-            question={activeWritten}
-            disabled={busy}
-            onSubmit={submitWritten}
-          />
+        <div
+          className="fixed inset-0 z-40 flex flex-col bg-[#f6f5f0]/97 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-sm sm:px-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Written test"
+        >
+          <div className="mx-auto flex h-full w-full max-w-lg min-h-0 flex-col">
+            <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-gray-900">Written test</p>
+              <p className="text-[11px] text-gray-500">Scroll for all options</p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              <QuestionCard
+                interviewId={interviewId}
+                question={activeWritten}
+                disabled={busy}
+                onSubmit={submitWritten}
+              />
+            </div>
+          </div>
         </div>
       ) : null}
 
       {/* T-03: bottom control bar — mic status, reminder options, and the core
           meeting controls (mute, Done, Leave) integrated in one place. */}
-      <div className="shrink-0 border-t border-gray-100 pt-2 sm:pt-3">
+      <div className="shrink-0 border-t border-gray-100 bg-[#f6f5f0] pt-2 sm:pt-3">
       {/* T-16: explicit voice-input status so the user always knows whether the
           mic is capturing them, waiting, processing — or paused for the AI. */}
       {supported ? (

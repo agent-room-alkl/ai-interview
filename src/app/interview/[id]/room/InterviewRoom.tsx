@@ -14,6 +14,7 @@ import {
 } from "@/lib/written-questions";
 import {
   interviewQuestionLimit,
+  interviewerTurnIsWritten,
   PASS_THRESHOLD,
   coachingCues,
   type ExpressionLevel,
@@ -159,16 +160,38 @@ export default function InterviewRoom({
   const [busy, setBusy] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [pausing, setPausing] = useState(false);
-  const [lastQuestion, setLastQuestion] = useState<string>(
-    initialTurns.filter((t) => t.speaker === "interviewer").at(-1)?.text ?? "",
-  );
-  const [activeWritten, setActiveWritten] = useState<WrittenQuestion | null>(
-    null,
-  );
+  const [lastQuestion, setLastQuestion] = useState<string>(() => {
+    const raw =
+      initialTurns.filter((t) => t.speaker === "interviewer").at(-1)?.text ?? "";
+    const wm = raw.match(/\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/i);
+    if (wm) {
+      const q = SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === wm[1]);
+      if (q) return q.prompt;
+    }
+    return stripMarkers(raw);
+  });
+  const [activeWritten, setActiveWritten] = useState<WrittenQuestion | null>(() => {
+    // Restore unanswered written card after refresh / resume.
+    let lastInterviewerIdx = -1;
+    for (let i = initialTurns.length - 1; i >= 0; i -= 1) {
+      if (initialTurns[i].speaker === "interviewer") {
+        lastInterviewerIdx = i;
+        break;
+      }
+    }
+    if (lastInterviewerIdx < 0) return null;
+    const raw = initialTurns[lastInterviewerIdx].text;
+    const wm = raw.match(/\[\[ASK_WRITTEN:([a-z0-9_-]+)\]\]/i);
+    if (!wm) return null;
+    for (let i = lastInterviewerIdx + 1; i < initialTurns.length; i += 1) {
+      if (initialTurns[i].speaker === "user") return null; // already answered
+    }
+    return SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === wm[1]) ?? null;
+  });
   const [, setUsedWrittenIds] = useState<string[]>([]);
   const writtenCountRef = useRef(
     initialTurns.filter(
-      (turn) => turn.speaker === "interviewer" && turn.text.startsWith("[Written "),
+      (turn) => turn.speaker === "interviewer" && interviewerTurnIsWritten(turn.text),
     ).length,
   );
   const writtenLimit = durationMinutes <= 10 ? 1 : durationMinutes <= 20 ? 1 : 2;

@@ -10,7 +10,10 @@ import {
   buildInterviewerMessages,
   buildTrainerMessages,
   interviewerSystemPrompt,
+  interviewerTurnIsWritten,
   looksLikeInterviewerAnswer,
+  pickScheduledWrittenId,
+  scheduledWrittenQuestionNumber,
   trainerSystemPrompt,
   interviewQuestionLimit,
   type EngineContext,
@@ -146,8 +149,9 @@ export async function POST(
         });
 
   const persistAgentTurn = async (text: string) => {
-    // T-13: strip written-test markers before persist so reloads stay clean.
-    const stored = text.replace(/\[\[ASK_WRITTEN:[a-z0-9_-]+\]\]/gi, "").trim();
+    // Keep [[ASK_WRITTEN:id]] so resume can restore the card and scheduling
+    // can detect that the required written slot was already used.
+    const stored = text.trim();
     await prisma.turn.create({
       data: { interviewId: id, speaker: agent, text: stored || text },
     });
@@ -186,6 +190,27 @@ export async function POST(
     if (looksLikeInterviewerAnswer(text)) {
       text = `Thanks, ${ctx.candidateName}. Could you share a specific example from your recent work that best shows how you handle complex technical trade-offs for this role?`;
     }
+
+    // Guarantee the scheduled written slot even if the model forgets the marker.
+    const writtenSlot = scheduledWrittenQuestionNumber(ctx.durationMinutes ?? 20);
+    const asked = transcript.filter((t) => t.speaker === "interviewer").length;
+    const nextNum = asked + 1;
+    const alreadyWritten = transcript.some(
+      (t) => t.speaker === "interviewer" && interviewerTurnIsWritten(t.text),
+    );
+    if (
+      writtenSlot != null &&
+      !alreadyWritten &&
+      nextNum === writtenSlot &&
+      !interviewerTurnIsWritten(text)
+    ) {
+      const id = pickScheduledWrittenId(ctx);
+      const lead =
+        text.replace(/\[\[ASK_WRITTEN:[a-z0-9_-]+\]\]/gi, "").trim() ||
+        `Please complete this short written exercise for question ${writtenSlot}.`;
+      text = `${lead}\n\n[[ASK_WRITTEN:${id}]]`;
+    }
+
     await persistAgentTurn(text);
     return new Response(text, {
       headers: { "Content-Type": "text/plain; charset=utf-8" },

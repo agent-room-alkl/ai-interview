@@ -17,10 +17,50 @@ export function interviewQuestionLimit(durationMinutes: number): number {
   return 8;
 }
 
+/**
+ * Which main-question number must be a written test (1-based), or null if
+ * written tests stay optional. Product: 20-min → Q2, 30-min+ → Q3, 10-min optional.
+ */
+export function scheduledWrittenQuestionNumber(
+  durationMinutes: number,
+): number | null {
+  if (durationMinutes <= 10) return null;
+  if (durationMinutes <= 20) return 2;
+  return 3;
+}
+
 function writtenTestPlan(durationMinutes: number): string {
-  if (durationMinutes <= 10) return "At most 1 written test, and it is optional/random; it is fine to use none.";
-  if (durationMinutes <= 20) return "Use at most 1 written test.";
-  return "Use at most 2 written tests.";
+  const slot = scheduledWrittenQuestionNumber(durationMinutes);
+  if (slot == null) {
+    return "At most 1 written test, and it is optional/random; it is fine to use none.";
+  }
+  if (durationMinutes <= 20) {
+    return `REQUIRED: Main question #${slot} MUST be a written test (emit [[ASK_WRITTEN:<id>]]). Use exactly 1 written test for the session — do not skip it and do not place it on another question number.`;
+  }
+  return `REQUIRED: Main question #${slot} MUST be a written test (emit [[ASK_WRITTEN:<id>]]). You may add at most one more written test later only if the role clearly needs it; never skip the required #${slot} written test.`;
+}
+
+/** True when an interviewer turn is (or was) a written-test card. */
+export function interviewerTurnIsWritten(text: string): boolean {
+  return (
+    /\[\[ASK_WRITTEN:[a-z0-9_-]+\]\]/i.test(text) ||
+    /^\[Written\b/i.test(text.trim())
+  );
+}
+
+/** Pick a catalog id for a forced written slot (role-aware, deterministic fallback). */
+export function pickScheduledWrittenId(c: EngineContext): string {
+  const roleBlob = `${c.targetRole} ${(c.targetRoles ?? []).join(" ")} ${c.resumeText}`
+    .toLowerCase();
+  const preferCoding =
+    /engineer|developer|software|backend|frontend|full.?stack|sre|devops|data|ml|ai|python|java|typescript|react|cloud|architect/.test(
+      roleBlob,
+    );
+  const coding = SAMPLE_WRITTEN_QUESTIONS.find((q) => q.kind === "coding");
+  const choice = SAMPLE_WRITTEN_QUESTIONS.find((q) => q.kind === "single_choice");
+  if (preferCoding && coding) return coding.id;
+  if (choice) return choice.id;
+  return SAMPLE_WRITTEN_QUESTIONS[0]?.id ?? "wq-coding-fizz";
 }
 
 /** T-27: documented score bands for calibration (prompt + smoke). */
@@ -204,12 +244,13 @@ Rules:
 - Do not answer for the candidate and do not lecture. Stay in character as the interviewer.
 - After ~6–8 substantive exchanges, wrap up: thank the candidate and say the interview is complete.
 
-WRITTEN TEST QUESTIONS (you decide when; never force an irrelevant test):
-- ${writtenTestPlan(c.durationMinutes ?? 20)} A written test counts as one main question. Only use one when the target role and résumé show a matching domain skill. For technical roles, choose the matching language/system and use code debugging, code completion, reasoning/argument, or single/multi-choice questions. For nontechnical roles, use a domain-appropriate scenario, analysis, or choice question; never insert a generic developer coding test. A diagram/image prompt is allowed when it genuinely tests the role.
+WRITTEN TEST QUESTIONS:
+- ${writtenTestPlan(c.durationMinutes ?? 20)} A written test counts as one main question.
+- Prefer a catalog item that matches the target role and résumé skills. For technical roles, prefer coding / reasoning / choice items; for nontechnical roles prefer scenario or choice items — never force an irrelevant developer coding test when a better catalog item exists.
 - The candidate answers it in an on-screen card; YOU never reveal the answer.
-- To do this, write ONE brief spoken lead-in sentence, then on a new line output ONLY the marker: [[ASK_WRITTEN:<id>]] — choosing an <id> from this catalog:
+- To pose a written test, write ONE brief spoken lead-in sentence, then on a new line output ONLY the marker: [[ASK_WRITTEN:<id>]] — choosing an <id> from this catalog:
 ${writtenCatalog()}
-- Emit the marker at most once every few turns, and never two in a row. Do not describe the question yourself — the card shows it. If none fit, just ask a normal question.
+- Emit the marker at most once every few turns, and never two in a row. Do not describe the full question body yourself — the card shows it. When a [SYSTEM] message REQUIRES a written test, you MUST emit the marker (do not substitute a normal spoken question).
 
 ${sharedContext(c)}`;
 }
@@ -346,8 +387,18 @@ export type BuildInterviewerOptions = {
 
 function nextQuestionNudge(
   candidateName: string,
-  opts?: { skipped?: boolean; previousQuestion?: string },
+  opts?: {
+    skipped?: boolean;
+    previousQuestion?: string;
+    /** Force this turn to be the scheduled written test. */
+    forceWritten?: boolean;
+    writtenQuestionNumber?: number;
+  },
 ): string {
+  if (opts?.forceWritten) {
+    const n = opts.writtenQuestionNumber ?? 2;
+    return `[SYSTEM] REQUIRED WRITTEN TEST — this is main question #${n} for ${candidateName}. Output ONE brief spoken lead-in sentence (no multi-paragraph text), then on its own line ONLY the marker [[ASK_WRITTEN:<id>]] choosing a suitable <id> from the written catalog in your system prompt. Do NOT ask a normal spoken-only question. Do NOT re-ask the previous question. Do not coach or score.`;
+  }
   const skipBit = opts?.skipped
     ? " The candidate chose to SKIP the previous question — do NOT re-ask it."
     : "";
@@ -442,6 +493,18 @@ export function buildInterviewerMessages(
   }
 
   const latest = rounds[rounds.length - 1];
+  const askedCount = rounds.filter((r) => r.q.trim()).length;
+  const writtenSlot = scheduledWrittenQuestionNumber(c.durationMinutes ?? 20);
+  const alreadyWritten = transcript.some(
+    (t) => t.speaker === "interviewer" && interviewerTurnIsWritten(t.text),
+  );
+  // Next main-question number if we are about to ask a brand-new interviewer turn.
+  const nextQuestionNumber = askedCount + 1;
+  const forceWritten =
+    writtenSlot != null &&
+    !alreadyWritten &&
+    nextQuestionNumber === writtenSlot;
+
   if (!latest?.q && !latest?.a) {
     messages.push({
       role: "user",
@@ -467,6 +530,8 @@ export function buildInterviewerMessages(
         content: nextQuestionNudge(c.candidateName, {
           skipped: forceNext,
           previousQuestion: latest.q,
+          forceWritten,
+          writtenQuestionNumber: writtenSlot ?? undefined,
         }),
       });
     }
@@ -477,6 +542,8 @@ export function buildInterviewerMessages(
       content: nextQuestionNudge(c.candidateName, {
         skipped: true,
         previousQuestion: latest.q,
+        forceWritten,
+        writtenQuestionNumber: writtenSlot ?? undefined,
       }),
     });
   } else {

@@ -2,7 +2,7 @@
 // Body: { userText?: string, agent: "interviewer" | "trainer", question?: string, answer?: string }
 // Streams the requested agent's response and persists turns.
 import { NextRequest } from "next/server";
-import { streamText } from "ai";
+import { generateText, streamText } from "ai";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { model } from "@/lib/ai";
@@ -10,9 +10,11 @@ import {
   buildInterviewerMessages,
   buildTrainerMessages,
   interviewerSystemPrompt,
+  looksLikeInterviewerAnswer,
   trainerSystemPrompt,
   interviewQuestionLimit,
   type EngineContext,
+  type EngineMessage,
   type Mode,
   type TranscriptTurn,
 } from "@/lib/interview-engine";
@@ -139,25 +141,60 @@ export async function POST(
         )
       : buildInterviewerMessages(ctx, transcript);
 
+  const persistAgentTurn = async (text: string) => {
+    // T-13: strip written-test markers before persist so reloads stay clean.
+    const stored = text.replace(/\[\[ASK_WRITTEN:[a-z0-9_-]+\]\]/gi, "").trim();
+    await prisma.turn.create({
+      data: { interviewId: id, speaker: agent, text: stored || text },
+    });
+    if (interview.status !== "in_progress" && interview.status !== "completed") {
+      await prisma.interview.update({
+        where: { id },
+        data: { status: "in_progress" },
+      });
+    }
+  };
+
+  // Interviewer: generate with reject/retry so first-person "answers" never land
+  // in Current question. Trainer keeps streaming for lower latency coaching.
+  if (agent === "interviewer") {
+    let working: EngineMessage[] = messages;
+    let text = "";
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await generateText({
+        model,
+        system,
+        messages: working,
+        temperature: attempt === 0 ? 0.6 : 0.2,
+      });
+      text = result.text.trim();
+      if (!looksLikeInterviewerAnswer(text)) break;
+      working = [
+        ...messages,
+        { role: "assistant", content: text },
+        {
+          role: "user",
+          content:
+            '[SYSTEM] REJECTED: that reply was a candidate-style answer/story, not an interviewer question. Ask ONE concise interview question ending with "?". No first-person experience narrative, STAR story, or model answer.',
+        },
+      ];
+    }
+    if (looksLikeInterviewerAnswer(text)) {
+      text = `Thanks, ${ctx.candidateName}. Could you share a specific example from your recent work that best shows how you handle complex technical trade-offs for this role?`;
+    }
+    await persistAgentTurn(text);
+    return new Response(text, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+
   const result = streamText({
     model,
     system,
     messages,
-    temperature: agent === "trainer" ? 0.4 : 0.7,
+    temperature: 0.4,
     onFinish: async ({ text }) => {
-      // T-13: the interviewer may embed an [[ASK_WRITTEN:<id>]] control marker to
-      // pose a written test. The live client reads it off the stream to open the
-      // question card; strip it before persisting so reloaded transcripts stay clean.
-      const stored = text.replace(/\[\[ASK_WRITTEN:[a-z0-9_-]+\]\]/gi, "").trim();
-      await prisma.turn.create({
-        data: { interviewId: id, speaker: agent, text: stored || text },
-      });
-      if (interview.status !== "in_progress" && interview.status !== "completed") {
-        await prisma.interview.update({
-          where: { id },
-          data: { status: "in_progress" },
-        });
-      }
+      await persistAgentTurn(text);
     },
   });
 

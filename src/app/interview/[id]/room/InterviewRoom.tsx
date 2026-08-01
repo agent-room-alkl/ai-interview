@@ -75,15 +75,22 @@ function spokenWrittenText(q: WrittenQuestion): string {
   return parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 }
 
-/** Resolve interviewer turn text into what should be spoken / shown for Repeat. */
+/** Display text for Current question (prompt only for written — options live on the card). */
+function resolveInterviewerDisplayText(raw: string): string {
+  const id = extractWrittenId(raw);
+  if (id) {
+    const q = SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id);
+    if (q) return q.prompt.trim();
+  }
+  return stripMarkers(raw);
+}
+
+/** Resolve interviewer turn text into what should be spoken / Repeat TTS. */
 function resolveInterviewerSpeakText(raw: string): string {
   const id = extractWrittenId(raw);
   if (id) {
     const q = SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id);
-    if (q) {
-      // Current question should be the real prompt, not lead-in + raw marker.
-      return spokenWrittenText(q);
-    }
+    if (q) return spokenWrittenText(q);
   }
   return stripMarkers(raw);
 }
@@ -227,18 +234,22 @@ export default function InterviewRoom({
   const [lastQuestion, setLastQuestion] = useState<string>(() => {
     const raw =
       initialTurns.filter((t) => t.speaker === "interviewer").at(-1)?.text ?? "";
-    return resolveInterviewerSpeakText(raw);
+    return resolveInterviewerDisplayText(raw);
   });
   const [activeWritten, setActiveWritten] = useState<WrittenQuestion | null>(() =>
     restoreUnansweredWritten(initialTurns),
   );
+  const activeWrittenRef = useRef<WrittenQuestion | null>(null);
+  useEffect(() => {
+    activeWrittenRef.current = activeWritten;
+  }, [activeWritten]);
   // Soft re-entry / cached route may keep this client tree mounted with stale
   // UI while initialTurns already has the written marker. Reconcile after mount.
   useEffect(() => {
     const q = restoreUnansweredWritten(initialTurns);
     if (!q) return;
     setActiveWritten((current) => (current?.id === q.id ? current : q));
-    setLastQuestion(spokenWrittenText(q));
+    setLastQuestion(q.prompt.trim());
     setMessages((prev) =>
       prev.map((m) => ({
         speaker: m.speaker,
@@ -890,10 +901,11 @@ export default function InterviewRoom({
             setUsedWrittenIds((prev) =>
               prev.includes(q.id) ? prev : [...prev, q.id],
             );
-            const spoken = spokenWrittenText(q);
-            setLastQuestion(spoken);
+            // UI: prompt only — clickable options live on QuestionCard overlay.
+            setLastQuestion(q.prompt.trim());
             setActiveWritten(q);
-            // Catalog prompt was never in the stream — speak it after the lead-in.
+            // TTS: read prompt + choice labels aloud.
+            const spoken = spokenWrittenText(q);
             if (spoken) enqueueSpeech(spoken);
           } else {
             // Never leave markers in Current question (stripMarkers is defensive).
@@ -1159,6 +1171,17 @@ export default function InterviewRoom({
         repeatQuestion();
         return;
       }
+      // Written MCQ/coding card is open — don't treat free speech as the answer
+      // (that collapsed the card into a plain Current-question blob).
+      if (activeWrittenRef.current) {
+        const nudge =
+          "Please complete the written test on the card — pick an option or type your answer there.";
+        cancelSpeakRef.current = false;
+        setSpeakingAgent("interviewer");
+        enqueueSpeech(nudge);
+        finalizeSpeech();
+        return;
+      }
       setLastScore(null); // T-12: reset the gate for this new attempt
       setShowPassHandoff(false);
       setClearExchangeUI(false);
@@ -1215,7 +1238,17 @@ export default function InterviewRoom({
     setEditingTranscript(false);
     setTranscriptDraft("");
     resetIdleReminders();
-    const prompt = "Take your time. Try the same question again when you're ready.";
+    // If this round is a written test, reopen the MCQ/coding card.
+    const byPrompt = SAMPLE_WRITTEN_QUESTIONS.find(
+      (q) => q.prompt.trim() === lastQuestionRef.current.trim(),
+    );
+    if (byPrompt) {
+      setActiveWritten(byPrompt);
+      setLastQuestion(byPrompt.prompt.trim());
+    }
+    const prompt = byPrompt
+      ? "Take your time. Complete the written card again when you're ready."
+      : "Take your time. Try the same question again when you're ready.";
     setMessages((current) => [...current, { speaker: "trainer", text: prompt }]);
     setSpeakingAgent("trainer");
     enqueueSpeech(prompt);
@@ -1279,7 +1312,7 @@ export default function InterviewRoom({
     setUsedWrittenIds((prev) => (prev.includes(q.id) ? prev : [...prev, q.id]));
     const spoken = spokenWrittenText(q);
     setActiveWritten(q);
-    setLastQuestion(spoken);
+    setLastQuestion(q.prompt.trim());
     setMessages((m) => [
       ...m,
       {
@@ -1879,7 +1912,7 @@ export default function InterviewRoom({
 
       {activeWritten ? (
         <div
-          className="fixed inset-0 z-40 flex flex-col bg-[#f6f5f0]/97 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-sm sm:px-6"
+          className="fixed inset-0 z-50 flex flex-col bg-[#f6f5f0]/97 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-sm sm:px-6"
           role="dialog"
           aria-modal="true"
           aria-label="Written test"

@@ -21,16 +21,21 @@ export default async function RoomPage({
   if (!interview.targetRole) redirect(`/interview/${id}/roles`);
   if (interview.status === "completed") redirect(`/interview/${id}/report`);
 
-  // Start the selected formal-interview window exactly once on the server.
-  // concurrent room loads safe: only the request that still sees null wins.
-  if (interview.mode === "interview" && !interview.deadlineAt) {
+  // Start the selected timer window exactly once on the server so refresh does
+  // not reset countdown (practice soft timer + formal hard stop share startedAt).
+  // Concurrent room loads are safe: only the request that still sees null wins.
+  if (!interview.deadlineAt) {
     const startedAt = new Date();
     const deadlineAt = new Date(
       startedAt.getTime() + interview.durationMinutes * 60 * 1000,
     );
     await prisma.interview.updateMany({
       where: { id, userId: session.user.id, deadlineAt: null },
-      data: { startedAt, deadlineAt, status: "in_progress" },
+      data: {
+        startedAt,
+        deadlineAt,
+        status: interview.status === "completed" ? "completed" : "in_progress",
+      },
     });
     interview = await prisma.interview.findUnique({
       where: { id },
@@ -61,12 +66,7 @@ export default async function RoomPage({
       targetRole={interview.targetRole!}
       durationMinutes={interview.durationMinutes}
       // Practice gets a soft client countdown; only formal interviews hard-stop.
-      deadlineAt={
-        interview.deadlineAt?.toISOString() ??
-        (interview.mode === "practice"
-          ? new Date(Date.now() + interview.durationMinutes * 60 * 1000).toISOString()
-          : null)
-      }
+      deadlineAt={interview.deadlineAt?.toISOString() ?? null}
       initialTurns={initialTurns}
     />
   );

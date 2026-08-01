@@ -133,6 +133,9 @@ export default function InterviewRoom({
   const [lastScore, setLastScore] = useState<number | null>(null);
   // Visible Pass handoff after a practice score of 75+ (silent — no trainer TTS).
   const [showPassHandoff, setShowPassHandoff] = useState(false);
+  // After a pass, hide trainer/answer panels without wiping message history
+  // (wiping history incorrectly reset progress back to 1/N).
+  const [clearExchangeUI, setClearExchangeUI] = useState(false);
   // Legacy transcript editing helpers remain wired to the retry flow.
   const [lastGradedTranscript, setLastGradedTranscript] = useState("");
   const [editingTranscript, setEditingTranscript] = useState(false);
@@ -611,6 +614,7 @@ export default function InterviewRoom({
         });
         if (agent === "interviewer") {
           setLastQuestion(finalText);
+          setClearExchangeUI(false);
           // T-13: interviewer decided to pose a written test question.
           const wm = buffer.match(WRITTEN_MARKER);
           const id = wm ? /ASK_WRITTEN:([a-z0-9_-]+)/i.exec(wm[0])?.[1] : null;
@@ -689,9 +693,9 @@ export default function InterviewRoom({
     setLastGradedTranscript("");
     setEditingTranscript(false);
     setTranscriptDraft("");
-    // Keep the passed round visible during the three-second handoff, then
-    // clear its Trainer feedback and answer before the next question arrives.
-    setMessages([]);
+    // Hide trainer/answer for the handoff, but keep message history so progress
+    // and resume stay on the real question count (not reset to 1).
+    setClearExchangeUI(true);
     void runAgent("interviewer", {});
   }, [
     handleFinish,
@@ -791,6 +795,7 @@ export default function InterviewRoom({
       }
       setLastScore(null); // T-12: reset the gate for this new attempt
       setShowPassHandoff(false);
+      setClearExchangeUI(false);
       // T-18: empty / noise / filler-only capture — don't score it, just show
       // what was heard and ask the candidate to say it again.
       if (isTrivialAnswer(t)) {
@@ -839,6 +844,7 @@ export default function InterviewRoom({
   const prepareRetry = useCallback(() => {
     setLastScore(null);
     setShowPassHandoff(false);
+    setClearExchangeUI(false);
     setEditingTranscript(false);
     setTranscriptDraft("");
     resetIdleReminders();
@@ -1065,29 +1071,48 @@ export default function InterviewRoom({
     });
   };
 
-  // Ask on first load when there is no question yet, or when a resumed room
-  // ended on a completed round. If the latest turn is interviewer, preserve
-  // that current question instead of issuing a duplicate request.
+  // Resume rules:
+  // - No interviewer yet → ask the first question.
+  // - Latest turn is interviewer → stay on that current question.
+  // - Latest is trainer with score >= 75 → request the next question.
+  // - Latest is trainer with score < 75 (or unscored) → stay; do not restart at Q1.
+  // - Interview mode + latest user turn → interviewer should respond.
   useEffect(() => {
     const latest = initialTurns.at(-1);
-    const needsNextQuestion =
-      latest?.speaker === "trainer" ||
-      (mode === "interview" && latest?.speaker === "user");
-    if (
-      !initialTurns.some((turn) => turn.speaker === "interviewer") ||
-      needsNextQuestion
-    ) {
+    const hasInterviewer = initialTurns.some((turn) => turn.speaker === "interviewer");
+    if (!hasInterviewer) {
       void runAgent("interviewer", {});
+      return;
+    }
+    if (mode === "interview" && latest?.speaker === "user") {
+      void runAgent("interviewer", {});
+      return;
+    }
+    if (latest?.speaker === "trainer") {
+      const score = parseScore(latest.text);
+      if (score != null && score >= 75) {
+        // Passed round already persisted — advance without replaying pass TTS.
+        setClearExchangeUI(true);
+        setLastScore(null);
+        void runAgent("interviewer", {});
+      }
+      // else stay on the current question + trainer feedback
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Restore the latest trainer score from history on load.
+  // Restore the latest trainer score / graded answer from history on load.
   useEffect(() => {
     const trainerMsg = [...initialTurns].reverse().find((t) => t.speaker === "trainer");
     if (trainerMsg) {
-      setLastScore(parseScore(trainerMsg.text));
+      const score = parseScore(trainerMsg.text);
+      // Only restore a failing/unscored gate — a pass should advance (see above).
+      if (score == null || score < 75) {
+        setLastScore(score);
+      }
     }
+    const userMsg = [...initialTurns].reverse().find((t) => t.speaker === "user");
+    if (userMsg) setLastGradedTranscript(userMsg.text);
   }, [initialTurns]);
 
   // Mobile browsers keep a new AudioContext suspended until a user gesture.
@@ -1232,10 +1257,17 @@ export default function InterviewRoom({
         }`.trim();
         const latestTrainer = [...messages].reverse().find((m) => m.speaker === "trainer")?.text;
         const latestUser = [...messages].reverse().find((m) => m.speaker === "user")?.text;
-        const trainerText = latestTrainer || (mode === "practice" ? "Waiting for your answer…" : "Observing");
+        const trainerText =
+          clearExchangeUI && !showPassHandoff
+            ? mode === "practice"
+              ? "Waiting for your answer…"
+              : "Observing"
+            : latestTrainer || (mode === "practice" ? "Waiting for your answer…" : "Observing");
         const answerText = userSpeaking
           ? liveUser || (recording ? "🎙 Listening…" : "…")
-          : latestUser || "Your answer will appear here";
+          : clearExchangeUI && !showPassHandoff
+            ? "Your answer will appear here"
+            : latestUser || "Your answer will appear here";
         return (
           <section className="mt-2 grid min-h-0 shrink-0 grid-cols-1 gap-2 lg:flex-1 lg:auto-rows-fr lg:grid-cols-3" aria-label="Current interview exchange">
             {/* Top: Current Question */}

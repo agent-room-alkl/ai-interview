@@ -1075,7 +1075,7 @@ export default function InterviewRoom({
     <div className="safe-pt safe-px mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-hidden px-3 sm:px-6 lg:max-w-7xl lg:px-10">
       <header className="flex shrink-0 flex-col gap-2 border-b border-gray-200 pb-2 pt-1 sm:flex-row sm:items-end sm:justify-between sm:pb-3">
         <div className="min-w-0">
-          <Link href="/dashboard" className="mb-1 inline-flex"><Logo compact /></Link>
+          <Link href="/dashboard" className="mb-1 inline-flex"><Logo compact showTagline /></Link>
           <h1 className="mt-1 truncate text-lg font-semibold tracking-[-0.03em] sm:text-2xl">
             {targetRole}
           </h1>

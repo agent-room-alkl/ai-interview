@@ -1,21 +1,17 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import {
-  ACCESS_PACKS,
-  FEATURED_PACK_ID,
-  formatUsd,
   hasActiveAccess,
-  PACK_IDS,
   TRIAL_DURATION_MINUTES,
 } from "@/lib/billing";
 import { prisma } from "@/lib/prisma";
 import { Logo } from "@/components/Logo";
-import { BuyPackButton } from "@/components/BuyPackButton";
+import { PricingPackPicker } from "@/components/PricingPackPicker";
 
 export const metadata = {
   title: "Pricing",
   description:
-    "Buy one-time Ainterv practice access: 1 day $3, 1 week $9, or 1 month $19. Stack packs anytime. New users get one free 10-minute trial.",
+    "Buy one-time Ainterv practice access: 1 day $3, 1 week $9 (best value), or 1 month $19. Stack packs anytime. New users get one free 10-minute trial.",
 };
 
 export default async function PricingPage({
@@ -65,10 +61,11 @@ export default async function PricingPage({
             Practice access packs. Buy once, stack anytime.
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
-            One-time purchases — not subscriptions. Each pack extends your access
-            window. While access is active you can start unlimited 10 / 20 / 30
-            minute practice or interview sessions. New accounts get one free{" "}
-            {TRIAL_DURATION_MINUTES}-minute trial.
+            One-time purchases — not subscriptions. Click a pack to select it
+            (hover and selection update the card).{" "}
+            <strong className="font-semibold text-[#17201e]">$9 / 1 week</strong>{" "}
+            is best value. Each card has its own buy button. New accounts get one
+            free {TRIAL_DURATION_MINUTES}-minute trial.
           </p>
 
           {params.cancelled ? (
@@ -102,85 +99,16 @@ export default async function PricingPage({
           ) : null}
         </section>
 
-        <section className="mt-10 grid gap-4 md:grid-cols-3">
-          {PACK_IDS.map((id) => {
-            const pack = ACCESS_PACKS[id];
-            const highlight = id === FEATURED_PACK_ID;
-            return (
-              <article
-                key={id}
-                className={`flex flex-col rounded-3xl border p-6 ${
-                  highlight
-                    ? "border-[#17201e] bg-[#17201e] text-[#f6f5f0] shadow-[0_20px_50px_-28px_rgba(23,32,30,0.55)]"
-                    : "border-[#17201e]/10 bg-white/70"
-                }`}
-              >
-                <p
-                  className={`text-xs font-semibold uppercase tracking-[0.14em] ${
-                    highlight ? "text-[#d7f16a]" : "text-[#65736d]"
-                  }`}
-                >
-                  {pack.name}
-                  {highlight ? " · most popular" : ""}
-                </p>
-                <p className="mt-4 text-4xl font-semibold tracking-[-0.05em]">
-                  {formatUsd(pack.amountCents)}
-                </p>
-                <p
-                  className={`mt-1 text-sm ${
-                    highlight ? "text-[#a9bbb2]" : "text-[#65736d]"
-                  }`}
-                >
-                  {pack.days} day{pack.days === 1 ? "" : "s"} · one-time
-                </p>
-                <p
-                  className={`mt-3 text-sm leading-6 ${
-                    highlight ? "text-[#c2d0c9]" : "text-[#65736d]"
-                  }`}
-                >
-                  {pack.blurb}
-                </p>
-                <ul
-                  className={`mt-4 flex-1 space-y-2 text-sm leading-6 ${
-                    highlight ? "text-[#c2d0c9]" : "text-[#65736d]"
-                  }`}
-                >
-                  {pack.features.map((line) => (
-                    <li key={line}>· {line}</li>
-                  ))}
-                </ul>
-                <div className="mt-6">
-                  {session?.user ? (
-                    <BuyPackButton
-                      pack={id}
-                      label={`Buy ${pack.name} — ${formatUsd(pack.amountCents)}`}
-                      className={
-                        highlight
-                          ? "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#d7f16a] px-5 py-3 text-sm font-semibold text-[#17201e] disabled:opacity-60"
-                          : undefined
-                      }
-                    />
-                  ) : (
-                    <Link
-                      href="/signup"
-                      className={
-                        highlight
-                          ? "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#d7f16a] px-5 py-3 text-sm font-semibold text-[#17201e]"
-                          : "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#17201e] px-5 py-3 text-sm font-semibold text-[#f6f5f0]"
-                      }
-                    >
-                      Sign up to buy
-                    </Link>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </section>
+        <PricingPackPicker
+          signedIn={Boolean(session?.user)}
+          trialHref="/interview/new"
+          showFreeTrial={false}
+          signupHref="/signup"
+        />
 
         <p className="mt-8 text-xs leading-5 text-[#65736d]">
           Secure checkout via Stripe. Access starts as soon as payment succeeds
-          and stacks if you already have remaining time.
+          and stacks if you already have remaining time. Refunds within 24 hours.
         </p>
       </div>
     </main>

@@ -65,6 +65,8 @@ model Interview {
   status        String   @default("draft") // draft | ready | in_progress | completed
   startedAt     DateTime?
   deadlineAt    DateTime?
+  pausedAt      DateTime?
+  pausedRemainingSeconds Int?
   createdAt     DateTime @default(now())
   turns         Turn[]
   reportCache   InterviewReportCache?

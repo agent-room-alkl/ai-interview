@@ -12,7 +12,11 @@ import {
   SAMPLE_WRITTEN_QUESTIONS,
   type WrittenQuestion,
 } from "@/lib/written-questions";
-import { PASS_THRESHOLD, type ExpressionLevel } from "@/lib/interview-engine";
+import {
+  interviewQuestionLimit,
+  PASS_THRESHOLD,
+  type ExpressionLevel,
+} from "@/lib/interview-engine";
 import { shouldForceCompleteOnZero } from "@/lib/interview-complete";
 import { QuestionCard } from "./QuestionCard";
 import { SpeakingIndicator } from "./SpeakingIndicator";
@@ -129,7 +133,7 @@ export default function InterviewRoom({
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialTurns);
-  const questionLimit = durationMinutes <= 10 ? 5 : durationMinutes <= 20 ? 8 : 12;
+  const questionLimit = interviewQuestionLimit(durationMinutes);
   const questionsAsked = messages.filter((m) => m.speaker === "interviewer").length;
   const progress = Math.min(questionsAsked, questionLimit);
   const [muted, setMuted] = useState(false);
@@ -149,9 +153,6 @@ export default function InterviewRoom({
   // Shown when autoplay policy blocks interviewer TTS until a tap/click.
   const [speechUnlockNeeded, setSpeechUnlockNeeded] = useState(false);
   const speechUnlockNeededRef = useRef(false);
-  // Tracks which question text was confirmed as scheduled for audible playback.
-  // UI always offers "Hear question" until this matches the current question.
-  const [heardQuestionKey, setHeardQuestionKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [lastQuestion, setLastQuestion] = useState<string>(
@@ -161,6 +162,12 @@ export default function InterviewRoom({
     null,
   );
   const [, setUsedWrittenIds] = useState<string[]>([]);
+  const writtenCountRef = useRef(
+    initialTurns.filter(
+      (turn) => turn.speaker === "interviewer" && turn.text.startsWith("[Written "),
+    ).length,
+  );
+  const writtenLimit = durationMinutes <= 10 ? 1 : durationMinutes <= 20 ? 1 : 2;
   // T-12: last trainer score (practice mode); gates progressing to the next Q.
   const [lastScore, setLastScore] = useState<number | null>(null);
   // Visible Pass handoff after a practice score of PASS_THRESHOLD+ (silent — no trainer TTS).
@@ -274,12 +281,13 @@ export default function InterviewRoom({
   useEffect(() => {
     lastQuestionRef.current = lastQuestion;
     const q = lastQuestion.trim();
-    // New question → require a fresh audible play (auto or Hear button).
-    if (q && heardQuestionKey !== q) {
+    // A new question needs one automatic audible play. A first user gesture
+    // may unlock audio, but must never replay a question that already played.
+    if (q) {
       setSpeechUnlockNeeded(true);
       resumeSpeechDoneRef.current = false;
     }
-  }, [lastQuestion, heardQuestionKey]);
+  }, [lastQuestion]);
   useEffect(() => {
     expressionLevelRef.current = expressionLevel;
     // Persist so a switch here (or the role-page choice) survives a reload.
@@ -491,10 +499,6 @@ export default function InterviewRoom({
       if (scheduledAny && ctx.state === "running" && markedSpeaking) {
         if (speakingAgentRef.current === "interviewer") {
           resumeSpeechDoneRef.current = true;
-          const q = lastQuestionRef.current.trim();
-          if (q) setHeardQuestionKey(q);
-          // Keep unlock banner until we've scheduled audible interviewer audio
-          // after a user gesture path; autoplay success also clears it.
           setSpeechUnlockNeeded(false);
         }
         // Keep aiSpeaking true until the scheduled audio has actually drained.
@@ -602,6 +606,28 @@ export default function InterviewRoom({
             window.location.assign(reportUrl);
           }
         }, 1200);
+      });
+  }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
+
+  const handlePause = useCallback(() => {
+    if (finishing || leavingRef.current) return;
+    leavingRef.current = true;
+    setFinishing(true);
+    clearSilenceTimer();
+    clearIdleReminder();
+    stopSpeaking();
+    chatAbortRef.current?.abort();
+    setBusy(false);
+    realtimeRef.current?.close();
+    realtimeRef.current = null;
+    void fetch(`/api/interview/${interviewId}/pause`, { method: "POST" })
+      .then((response) => {
+        if (response.ok) router.push("/dashboard");
+        else throw new Error("pause failed");
+      })
+      .catch(() => {
+        leavingRef.current = false;
+        setFinishing(false);
       });
   }, [finishing, interviewId, router, stopSpeaking, clearSilenceTimer, clearIdleReminder]);
 
@@ -736,7 +762,8 @@ export default function InterviewRoom({
           const wm = buffer.match(WRITTEN_MARKER);
           const id = wm ? /ASK_WRITTEN:([a-z0-9_-]+)/i.exec(wm[0])?.[1] : null;
           const q = id ? SAMPLE_WRITTEN_QUESTIONS.find((x) => x.id === id) : null;
-          if (q) {
+          if (q && writtenCountRef.current < writtenLimit) {
+            writtenCountRef.current += 1;
             setUsedWrittenIds((prev) =>
               prev.includes(q.id) ? prev : [...prev, q.id],
             );
@@ -896,11 +923,8 @@ export default function InterviewRoom({
   }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
 
   // Resume / re-entry: interviewer must actually SPEAK the active question.
-  // Browsers often block autoplay until a gesture — we try immediately and
-  // surface a Tap-to-hear control if speech never starts.
-  const initialQuestionRef = useRef(
-    initialTurns.filter((turn) => turn.speaker === "interviewer").at(-1)?.text ?? "",
-  );
+  // Browsers often block autoplay until a gesture, so the first gesture only
+  // unlocks a still-pending utterance; it never starts a duplicate replay.
   const speakInterviewerNow = useCallback(
     (text: string, opts?: { force?: boolean }) => {
       const q = stripMarkers(text).trim();
@@ -918,8 +942,10 @@ export default function InterviewRoom({
     [enqueueSpeech, finalizeSpeech, resetIdleReminders],
   );
 
-  const unlockAndSpeakInterviewer = useCallback(async () => {
+  const unlockAndSpeakInterviewer = useCallback(async (opts?: { force?: boolean }) => {
+    const force = opts?.force === true;
     if (unlockInFlightRef.current) return;
+    if (!force && (resumeSpeechDoneRef.current || aiSpeakingRef.current)) return;
     unlockInFlightRef.current = true;
     try {
       const ctx = await ensureAudioRunning();
@@ -929,11 +955,15 @@ export default function InterviewRoom({
       }
       const pending = resumeSpeechPendingRef.current;
       if (pending === "__await_next__") {
-        if (!busyRef.current) {
-          setClearExchangeUI(true);
-          setLastScore(null);
-          setShowPassHandoff(false);
-          void runAgent("interviewer", {});
+        // The interviewer request is already in flight (or has just landed).
+        // A gesture should unlock/replay its current question, never start a
+        // second chat request that would produce a duplicate opening prompt.
+        const q = lastQuestionRef.current.trim();
+        if (q && !busyRef.current && (force || !resumeSpeechDoneRef.current)) {
+          resumeSpeechPendingRef.current = q;
+          if (force) stopSpeaking();
+          if (force) resumeSpeechDoneRef.current = false;
+          speakInterviewerNow(q, { force: true });
         }
         return;
       }
@@ -1104,7 +1134,8 @@ export default function InterviewRoom({
   }, [submitBufferedAnswer]);
 
   const openWrittenQuestion = useCallback((q: WrittenQuestion) => {
-    if (busyRef.current) return;
+    if (busyRef.current || writtenCountRef.current >= writtenLimit) return;
+    writtenCountRef.current += 1;
     setUsedWrittenIds((prev) => (prev.includes(q.id) ? prev : [...prev, q.id]));
     setActiveWritten(q);
     setLastQuestion(q.prompt);
@@ -1115,7 +1146,7 @@ export default function InterviewRoom({
         text: `[Written ${q.kind}] ${q.prompt}`,
       },
     ]);
-  }, []);
+  }, [writtenLimit]);
 
   const submitWritten = useCallback(
     (utterance: string) => {
@@ -1355,20 +1386,6 @@ export default function InterviewRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // After a streamed next question lands, retry TTS if autoplay was blocked.
-  // Ignore the mount snapshot so we don't re-speak the pre-advance question
-  // while the next interviewer turn is still in flight.
-  useEffect(() => {
-    if (resumeSpeechPendingRef.current !== "__await_next__") return;
-    if (busy || resumeSpeechDoneRef.current || aiSpeakingRef.current) return;
-    const q = lastQuestion.trim();
-    if (!q) return;
-    if (q === stripMarkers(initialQuestionRef.current).trim()) return;
-    resumeSpeechPendingRef.current = q;
-    setSpeechUnlockNeeded(true);
-    speakInterviewerNow(q, { force: true });
-  }, [busy, lastQuestion, speakInterviewerNow]);
-
   // Soft unlock on first gesture (does not mark done until audio actually plays).
   useEffect(() => {
     const unlockAndMaybeSpeak = () => {
@@ -1444,11 +1461,12 @@ export default function InterviewRoom({
           <button
             type="button"
             disabled={finishing}
-            onClick={handleFinish}
+            onClick={handlePause}
             className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 text-xs font-semibold text-white disabled:opacity-60"
           >
-            {finishing ? "Finishing…" : "Leave"}
+            {finishing ? "Pausing…" : "Pause & leave"}
           </button>
+          <button type="button" disabled={finishing} onClick={handleFinish} className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-800 disabled:opacity-60">End interview</button>
         </div>
       </header>
 
@@ -1526,41 +1544,6 @@ export default function InterviewRoom({
           {micError}
         </div>
       )}
-
-      {(() => {
-        const q = lastQuestion.trim();
-        const loadingNext =
-          resumeSpeechPendingRef.current === "__await_next__" && busy;
-        // Always offer a manual play control until this question was actually
-        // scheduled for playback. Autoplay often fails silently on re-entry.
-        const needsHear =
-          !!q &&
-          !loadingNext &&
-          !aiSpeaking &&
-          !activeWritten &&
-          (speechUnlockNeeded || heardQuestionKey !== q);
-        if (!needsHear && !loadingNext) return null;
-        return (
-          <div className="mt-2 flex shrink-0 flex-col items-stretch gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs leading-5 text-indigo-950 sm:text-sm">
-              {loadingNext
-                ? "Loading the next interviewer question…"
-                : "Tap to hear the interviewer read this question aloud."}
-            </p>
-            {!loadingNext ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void unlockAndSpeakInterviewer();
-                }}
-                className="min-h-10 shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
-              >
-                Hear question
-              </button>
-            ) : null}
-          </div>
-        );
-      })()}
 
       {(() => {
         const userSpeaking = recording || interim || hasPendingAnswer;

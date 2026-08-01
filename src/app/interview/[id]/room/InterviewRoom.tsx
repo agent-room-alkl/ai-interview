@@ -14,6 +14,7 @@ import {
 } from "@/lib/written-questions";
 import { type ExpressionLevel } from "@/lib/interview-engine";
 import { QuestionCard } from "./QuestionCard";
+import { SpeakingIndicator } from "./SpeakingIndicator";
 import {
   connectRealtimeSTT,
   type RealtimeSTTController,
@@ -1164,21 +1165,25 @@ export default function InterviewRoom({
           {timeLeft !== null && (
             <div
               aria-label={`Time remaining ${Math.floor(timeLeft / 60)} minutes ${timeLeft % 60} seconds`}
-              className={`min-w-[5.5rem] rounded-xl border px-3 py-2 text-center text-xs font-semibold tabular-nums ${
+              className={`inline-flex h-9 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold tabular-nums ${
                 timeLeft <= 60
                   ? "border-red-200 bg-red-50 text-red-700"
-                  : "border-gray-200 bg-gray-50 text-gray-700"
+                  : "border-gray-300 bg-white text-gray-800"
               }`}
             >
-              <span className="block text-[10px] uppercase tracking-wide opacity-70">Time left</span>
-              <span className="text-sm">{Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}</span>
+              <span className="text-[10px] uppercase tracking-wide opacity-70">Time</span>
+              <span>
+                {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}
+              </span>
             </div>
           )}
           <button
             type="button"
             onClick={toggleMute}
-            className={`min-h-9 rounded-lg px-3 py-1.5 text-xs font-medium ${
-              muted ? "bg-red-600 text-white" : "border border-gray-300 bg-white text-gray-800"
+            className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-xs font-semibold ${
+              muted
+                ? "border-red-600 bg-red-600 text-white"
+                : "border-gray-300 bg-white text-gray-800"
             }`}
           >
             {muted ? "Unmute" : "Mute"}
@@ -1187,7 +1192,7 @@ export default function InterviewRoom({
             type="button"
             disabled={finishing}
             onClick={handleFinish}
-            className="min-h-9 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 text-xs font-semibold text-white disabled:opacity-60"
           >
             {finishing ? "Finishing…" : "Leave"}
           </button>
@@ -1268,18 +1273,30 @@ export default function InterviewRoom({
           : clearExchangeUI && !showPassHandoff
             ? "Your answer will appear here"
             : latestUser || "Your answer will appear here";
+        const interviewerSpeaking = aiSpeaking && speakingAgent === "interviewer";
+        const trainerSpeaking = aiSpeaking && speakingAgent === "trainer";
         return (
           <section className="mt-2 grid min-h-0 shrink-0 grid-cols-1 gap-2 lg:flex-1 lg:auto-rows-fr lg:grid-cols-3" aria-label="Current interview exchange">
             {/* Top: Current Question */}
-            <div className="flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 sm:px-4 lg:max-h-none">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">Current question</p>
+            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${interviewerSpeaking ? "border-indigo-400 bg-indigo-100" : "border-indigo-200 bg-indigo-50"}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+                  Current question{interviewerSpeaking ? " · speaking" : ""}
+                </p>
+                <SpeakingIndicator active={interviewerSpeaking} tone="interviewer" />
+              </div>
               <div className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-indigo-950 sm:text-sm sm:leading-5">
                 {lastQuestion || "Waiting for the first question…"}
               </div>
             </div>
             {/* Middle: Trainer content */}
-            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${aiSpeaking && speakingAgent === "trainer" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Trainer {aiSpeaking && speakingAgent === "trainer" ? "· speaking…" : ""}</p>
+            <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${trainerSpeaking ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                  Trainer{trainerSpeaking ? " · speaking" : ""}
+                </p>
+                <SpeakingIndicator active={trainerSpeaking} tone="trainer" />
+              </div>
               <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(trainerText)}
                 {mode === "practice" && lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
@@ -1296,7 +1313,12 @@ export default function InterviewRoom({
             </div>
             {/* Bottom: Your answer */}
             <div className={`flex max-h-[30vh] min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 lg:max-h-none ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Your answer</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                  Your answer{userSpeaking ? " · speaking" : ""}
+                </p>
+                <SpeakingIndicator active={!!userSpeaking} tone="user" />
+              </div>
               <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                 {renderRich(answerText)}
               </div>

@@ -6,16 +6,18 @@ export function SpeakingIndicator({
   tone = "neutral",
 }: {
   active: boolean;
-  tone?: "user" | "ai" | "neutral";
+  tone?: "interviewer" | "trainer" | "user" | "ai" | "neutral";
 }) {
   if (!active) return null;
 
   const bar =
-    tone === "user"
-      ? "bg-indigo-300"
-      : tone === "ai"
-        ? "bg-emerald-400"
-        : "bg-gray-400";
+    tone === "interviewer" || tone === "ai"
+      ? "bg-indigo-500"
+      : tone === "trainer"
+        ? "bg-amber-500"
+        : tone === "user"
+          ? "bg-emerald-500"
+          : "bg-gray-400";
 
   return (
     <span
@@ -23,14 +25,14 @@ export function SpeakingIndicator({
       aria-label="Speaking"
       role="status"
     >
-      {[0, 1, 2, 3].map((i) => (
+      {[0, 1, 2, 3, 4].map((i) => (
         <span
           key={i}
-          className={`inline-block w-0.5 rounded-full ${bar}`}
+          className={`inline-block w-[3px] rounded-full ${bar}`}
           style={{
-            height: 14,
+            height: 16,
             transformOrigin: "bottom",
-            animation: `room-speak-wave 0.7s ease-in-out ${i * 0.12}s infinite`,
+            animation: `room-speak-wave 0.7s ease-in-out ${i * 0.1}s infinite`,
           }}
         />
       ))}

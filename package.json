@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && node scripts/migrate-deploy.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate"
@@ -20,6 +20,7 @@
     "pdf-parse": "^2.4.5",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "stripe": "^22.4.0",
     "unpdf": "^1.8.0",
     "zod": "^4.4.3"
   },

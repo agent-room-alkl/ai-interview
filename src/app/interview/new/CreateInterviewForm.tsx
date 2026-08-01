@@ -1,17 +1,38 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import Link from "next/link";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import {
   createInterview,
   type CreateInterviewState,
 } from "@/app/interview/new/actions";
+import {
+  hasActiveAccess,
+  PAID_DURATIONS,
+  TRIAL_DURATION_MINUTES,
+} from "@/lib/billing";
 
 const initial: CreateInterviewState = {};
 
-export function CreateInterviewForm({ initialResumeText = "" }: { initialResumeText?: string }) {
+export function CreateInterviewForm({
+  initialResumeText = "",
+  accessUntil = null,
+  trialUsed = false,
+}: {
+  initialResumeText?: string;
+  accessUntil?: string | null;
+  trialUsed?: boolean;
+}) {
   const [state, formAction, pending] = useActionState(createInterview, initial);
   const [mode, setMode] = useState<"practice" | "interview">("practice");
   const [resumeText, setResumeText] = useState(initialResumeText);
+  const paid = useMemo(() => hasActiveAccess(accessUntil), [accessUntil]);
+  const allowedDurations = paid
+    ? [...PAID_DURATIONS]
+    : trialUsed
+      ? []
+      : [TRIAL_DURATION_MINUTES];
+  const defaultDuration = allowedDurations[0] ?? TRIAL_DURATION_MINUTES;
 
   useEffect(() => {
     if (state.resumePreview) setResumeText(state.resumePreview);
@@ -86,25 +107,52 @@ export function CreateInterviewForm({ initialResumeText = "" }: { initialResumeT
             <legend className="text-sm font-medium text-[#65736d]">
               Interview length
             </legend>
-            <div className="grid grid-cols-3 gap-3">
-              {[10, 20, 30].map((minutes) => (
-                <label
-                  key={minutes}
-                  className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-[#17201e]/15 bg-white px-3 py-2"
-                >
-                  <input
-                    type="radio"
-                    name="durationMinutes"
-                    value={minutes}
-                    defaultChecked={minutes === 20}
-                    className="size-4"
-                  />
-                  <span className="font-medium">{minutes} min</span>
-                </label>
-              ))}
-            </div>
+            {allowedDurations.length === 0 ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                Free trial used.{" "}
+                <Link href="/pricing" className="font-semibold underline underline-offset-2">
+                  Buy practice access
+                </Link>{" "}
+                to start another session.
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                {PAID_DURATIONS.map((minutes) => {
+                  const enabled = allowedDurations.includes(minutes);
+                  return (
+                    <label
+                      key={minutes}
+                      className={`flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-3 py-2 ${
+                        enabled
+                          ? "cursor-pointer border-[#17201e]/15 bg-white"
+                          : "cursor-not-allowed border-[#17201e]/08 bg-[#f0efe8] opacity-60"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="durationMinutes"
+                        value={minutes}
+                        defaultChecked={enabled && minutes === defaultDuration}
+                        disabled={!enabled}
+                        className="size-4"
+                      />
+                      <span className="font-medium">{minutes} min</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
             <p className="text-xs text-[#65736d]">
-              Interview mode ends at the time limit; practice mode uses it as a guide.
+              {paid
+                ? "Interview mode ends at the time limit; practice mode uses it as a soft guide."
+                : trialUsed
+                  ? "Purchase a pack on Pricing to unlock 10 / 20 / 30 minute sessions."
+                  : `Free trial: one ${TRIAL_DURATION_MINUTES}-minute session. Buy access for 20/30 min and unlimited practice.`}{" "}
+              {!paid ? (
+                <Link href="/pricing" className="font-semibold underline underline-offset-2">
+                  View pricing
+                </Link>
+              ) : null}
             </p>
           </fieldset>
 
@@ -127,10 +175,14 @@ export function CreateInterviewForm({ initialResumeText = "" }: { initialResumeT
         <div className="pt-4 space-y-4">
           <button
             type="submit"
-            disabled={pending}
+            disabled={pending || allowedDurations.length === 0}
             className="min-h-12 w-full rounded-full bg-[#17201e] px-6 py-3.5 text-sm font-semibold text-[#f6f5f0] disabled:opacity-60"
           >
-            {pending ? "Uploading & parsing…" : "Continue to role selection →"}
+            {pending
+              ? "Uploading & parsing…"
+              : allowedDurations.length === 0
+                ? "Buy access to continue"
+                : "Continue to role selection →"}
           </button>
 
           {pending ? (

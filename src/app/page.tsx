@@ -1,7 +1,28 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { Logo } from "@/components/Logo";
+import { PricingPackPicker } from "@/components/PricingPackPicker";
+import { ACCESS_PACKS, PACK_IDS } from "@/lib/billing";
+import {
+  SITE_DEFAULT_TITLE,
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  SITE_TAGLINE,
+  getSiteUrl,
+} from "@/lib/site";
+
+export const metadata: Metadata = {
+  title: { absolute: SITE_DEFAULT_TITLE },
+  description: SITE_DESCRIPTION,
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: SITE_DEFAULT_TITLE,
+    description: SITE_DESCRIPTION,
+    url: "/",
+  },
+};
 
 const features = [
   {
@@ -63,8 +84,61 @@ export default async function Home() {
   } catch {
     // Auth failure should not crash the public landing page.
   }
+  const siteUrl = getSiteUrl();
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        name: SITE_NAME,
+        alternateName: ["Ainterv.com", "AI Interview"],
+        url: siteUrl,
+        description: SITE_DESCRIPTION,
+        inLanguage: "en",
+      },
+      {
+        "@type": "SoftwareApplication",
+        name: SITE_NAME,
+        applicationCategory: "EducationalApplication",
+        operatingSystem: "Web",
+        url: siteUrl,
+        description: SITE_DESCRIPTION,
+        slogan: SITE_TAGLINE,
+        offers: {
+          "@type": "AggregateOffer",
+          lowPrice: "0",
+          highPrice: "19",
+          priceCurrency: "USD",
+          offerCount: "4",
+          offers: [
+            {
+              "@type": "Offer",
+              name: "Free 10-minute trial",
+              price: "0",
+              priceCurrency: "USD",
+            },
+            ...PACK_IDS.map((id) => ({
+              "@type": "Offer" as const,
+              name: `Practice access — ${ACCESS_PACKS[id].name}`,
+              price: String(ACCESS_PACKS[id].amountCents / 100),
+              priceCurrency: "USD",
+            })),
+          ],
+        },
+      },
+      {
+        "@type": "Organization",
+        name: SITE_NAME,
+        url: siteUrl,
+      },
+    ],
+  };
   return (
     <main className="min-h-dvh overflow-x-clip bg-[#f6f5f0] text-[#17201e]">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <section className="safe-px relative mx-auto max-w-7xl px-4 pb-16 pt-4 sm:px-10 sm:pb-20 sm:pt-6 lg:px-16">
         <div className="pointer-events-none absolute -right-40 -top-32 h-[28rem] w-[28rem] rounded-full bg-[#d9f0e7] blur-3xl" />
         <nav className="relative z-10 flex items-center justify-between gap-3 border-b border-[#17201e]/10 pb-4 sm:pb-5">
@@ -77,6 +151,12 @@ export default async function Home() {
               href="#how-it-works"
             >
               How it works
+            </a>
+            <a
+              className="hidden transition-opacity hover:opacity-60 sm:inline"
+              href="#pricing"
+            >
+              Pricing
             </a>
             <a
               className="hidden transition-opacity hover:opacity-60 md:inline"
@@ -140,9 +220,13 @@ export default async function Home() {
                 href="#pricing"
                 className="inline-flex min-h-12 items-center justify-center rounded-full border border-[#17201e]/20 px-6 py-3.5 text-sm font-semibold transition-colors hover:bg-white/60"
               >
-                Free while we build
+                From $3 · free 10‑min trial
               </a>
             </div>
+            <p className="mt-4 text-xs leading-5 text-[#65736d] sm:text-sm">
+              One free 10-minute session · then $3/day · $9/week · $19/month
+              (one-time, stackable)
+            </p>
           </div>
           <div className="relative mx-auto w-full max-w-md px-1 lg:mb-2 lg:px-0">
             <div className="rounded-[1.5rem] border border-[#17201e]/10 bg-[#e3eee7] p-2.5 shadow-[0_24px_70px_-30px_rgba(23,32,30,0.35)] sm:rounded-[2rem] sm:p-3">
@@ -203,24 +287,6 @@ export default async function Home() {
         </div>
 
         <section
-          id="pricing"
-          className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
-        >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
-            Pricing
-          </p>
-          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
-            Free to practice now. Pay later when we launch plans.
-          </h2>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
-            During early access you can run full voice interviews and coaching
-            without a paid subscription. Signed-in sessions may include a fair
-            time limit so everyone gets a turn. When paid plans arrive, we will
-            show pricing clearly before you upgrade — no surprise charges.
-          </p>
-        </section>
-
-        <section
           id="guide"
           className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
         >
@@ -248,6 +314,37 @@ export default async function Home() {
               </li>
             ))}
           </ol>
+        </section>
+
+        <section
+          id="pricing"
+          className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
+            Pricing
+          </p>
+          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
+            One free 10-minute trial. Then simple one-time packs.
+          </h2>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
+            New accounts get one free 10-minute session. Packs are one-time
+            (not subscriptions) and stack. Click a card to select it —{" "}
+            <strong className="font-semibold text-[#17201e]">1 week / $9</strong>{" "}
+            is best value by default. Buy button sits inside each pack card.
+          </p>
+
+          <PricingPackPicker
+            signedIn={Boolean(userId)}
+            trialHref="/interview/new"
+            signupHref="/signup"
+          />
+          <p className="mt-4 text-xs leading-5 text-[#65736d]">
+            Prefer the full checkout page?{" "}
+            <Link href="/pricing" className="font-semibold underline underline-offset-4">
+              Open /pricing
+            </Link>
+            . Refunds available within 24 hours of purchase.
+          </p>
         </section>
 
         <section

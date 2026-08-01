@@ -243,7 +243,7 @@ export default function InterviewRoom({
   // like the interviewer stuttered at the start of the room.
   const TTS_MIN_CHUNK = 320;
   const SAMPLE_RATE = 24000; // OpenAI pcm output rate
-  const SCHED_LEAD = 0.12; // seconds of head-start when (re)starting from idle
+  const SCHED_LEAD = 0.35; // seconds of head-start when (re)starting from idle
   const BLOCK_BYTES = 9600; // ~200 ms of 24 kHz 16-bit mono before scheduling
 
   const clearTtsFlushTimer = useCallback(() => {

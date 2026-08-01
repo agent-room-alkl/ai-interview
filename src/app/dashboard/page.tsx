@@ -187,16 +187,29 @@ export default async function DashboardPage() {
           <div className="mt-4 divide-y divide-[#17201e]/10 rounded-2xl border border-[#17201e]/10 bg-white/55">
             {interviews.slice(0, 6).map((interview) => {
               const score = readScore(interview.turns.find((turn) => turn.speaker === "report")?.text);
+              const timedOut =
+                !!interview.deadlineAt &&
+                interview.deadlineAt.getTime() <= Date.now() &&
+                interview.status !== "completed" &&
+                score === null;
+              const completed =
+                interview.status === "completed" || score !== null || timedOut;
+              const href = completed
+                ? `/interview/${interview.id}/report`
+                : interview.targetRole
+                  ? `/interview/${interview.id}/room`
+                  : `/interview/${interview.id}/roles`;
+              const statusLabel =
+                score !== null
+                  ? `${score}/100`
+                  : completed
+                    ? "Completed"
+                    : "In progress";
+              const cta = completed ? "View report →" : "View details →";
               return (
                 <Link
                   key={interview.id}
-                  href={
-                    score !== null
-                      ? `/interview/${interview.id}/report`
-                      : interview.targetRole
-                        ? `/interview/${interview.id}/room`
-                        : `/interview/${interview.id}/roles`
-                  }
+                  href={href}
                   className="flex items-center justify-between gap-4 px-4 py-4 transition-colors hover:bg-white/70 sm:px-5"
                 >
                   <span className="min-w-0">
@@ -204,8 +217,8 @@ export default async function DashboardPage() {
                     <span className="mt-1 block text-xs text-[#65736d]">{new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(interview.createdAt)} · {interview.mode === "practice" ? "Practice" : "Interview"}</span>
                   </span>
                   <span className="shrink-0 text-right">
-                    <span className="block text-lg font-semibold">{score === null ? "In progress" : `${score}/100`}</span>
-                    <span className="text-xs text-[#65736d]">View details →</span>
+                    <span className="block text-lg font-semibold">{statusLabel}</span>
+                    <span className="text-xs text-[#65736d]">{cta}</span>
                   </span>
                 </Link>
               );

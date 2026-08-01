@@ -859,6 +859,10 @@ export default function InterviewRoom({
     setShowPassHandoff(false);
     setLastScore(null);
     setLastGradedTranscript("");
+    // Do not keep showing the completed question while the next one is being
+    // requested. The interviewer response will replace this placeholder once
+    // it is persisted and streamed back to the room.
+    setLastQuestion("");
     setEditingTranscript(false);
     setTranscriptDraft("");
     // Hide trainer/answer for the handoff, but keep message history so progress

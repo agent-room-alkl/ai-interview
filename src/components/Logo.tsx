@@ -34,7 +34,7 @@ export function Logo({
     <div className="flex flex-col items-start gap-0">
       {logoText}
       <span className="text-[8px] font-semibold leading-none tracking-[0.02em] uppercase text-[#65736d] sm:text-[9px]">
-        Answer your best one.
+        Make your next answer your best one.
       </span>
     </div>
   );

@@ -135,7 +135,7 @@ export default async function Home() {
     ],
   };
   return (
-    <main className="min-h-dvh overflow-x-clip bg-[#f6f5f0] text-[#17201e]">
+    <main className="isolate min-h-dvh overflow-x-clip bg-[#f6f5f0] text-[#17201e]">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

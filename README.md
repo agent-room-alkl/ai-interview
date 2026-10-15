@@ -137,7 +137,7 @@ Open <http://localhost:3000>, sign up, upload a résumé and start a session.
 | `AI_GATEWAY_API_KEY` | – | Route chat through Vercel AI Gateway; leave empty to use OpenAI directly. |
 | `AI_MODEL` | – | Chat model, default `gpt-4o-mini`. |
 | `STT_MODEL` | – | Transcription model, default `gpt-4o-transcribe` (`whisper-1` also works). |
-| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | – | Paid access packs (day / week / month). Checkout uses inline prices — no Price IDs to create. |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | – | Paid access packs (week ($3) / month ($9)). Checkout uses inline prices — no Price IDs to create. |
 | `NEXT_PUBLIC_SITE_URL` | – | Canonical URL for Open Graph, sitemap and robots. |
 | `NEXT_PUBLIC_GA_MEASUREMENT_ID` | – | Google Analytics 4 with first-touch UTM attribution. |
 
@@ -187,3 +187,13 @@ The app is built for **Vercel**: import the repo, set the environment variables 
 ## Contributing
 
 Issues and pull requests are welcome. If AI Interview helped you prepare, a ⭐ helps other people find it.
+
+
+## October 2026 practice updates
+
+- Switch the interface between English and Chinese in the top bar. Interview language is selected independently on the role screen; generated reports follow that language.
+- `/interview/pitch`: résumé-free 30/60-second elevator pitch rehearsal, local audio replay, editable transcription, coaching, and repeat attempts. Quick practice is not saved to interview history.
+- Voice answers are reviewed before submission by default. Automatic submission after a pause is optional. Passed answers stay available until you choose the next question.
+- Free access starts at the first practice and lasts exactly 24 hours (unlimited 10/20/30-minute sessions). Paid access is $3 for 7 days or $9 for 30 days. No day pack or $19 tier is sold. Existing purchases retain their recorded duration and refund behavior.
+- Apply `prisma migrate deploy` before starting the updated app: the new nullable `User.trialEndsAt` records trial expiry. Previously consumed trials stay consumed; this migration does not reset existing users or alter paid access.
+- Run `npm test`, `npm run lint`, and `npx tsc --noEmit`. A full end-to-end voice/payment check requires configured Clerk, PostgreSQL, OpenAI and Stripe test credentials. The build script applies migrations, so use `npx next build` when checking compilation without touching a database.

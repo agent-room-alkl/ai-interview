@@ -69,15 +69,11 @@ export default function TermsPage() {
               5. Free trial and paid access packs
             </h2>
             <p className="mt-2">
-              New accounts receive one free trial session limited to{" "}
-              <strong>10 minutes</strong>. The free trial does not include 20- or
-              30-minute sessions. After the trial is used, you must purchase
-              access to continue.
+              New accounts receive <strong>24 hours</strong> of free unlimited practice from their first session, including 10, 20 and 30 minute sessions. After the trial expires, purchase access to continue.
             </p>
             <p className="mt-2">
               Paid access is sold as one-time (non-subscription) practice packs
-              priced in USD: <strong>$3 for 1 day</strong>,{" "}
-              <strong>$9 for 7 days</strong>, and <strong>$19 for 30 days</strong>.
+              priced in USD: <strong>$3 for 7 days</strong> and <strong>$9 for 30 days</strong>.
               Purchases stack by extending your account&apos;s access end time
               from the later of &quot;now&quot; or your current end time. While
               access is active you may start unlimited 10 / 20 / 30 minute

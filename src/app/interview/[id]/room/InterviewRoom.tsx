@@ -1,4 +1,6 @@
 "use client";
+import { T, useLanguage } from "@/components/LanguageProvider";
+
 // Voice: always-on mic → getUserMedia (echo cancellation) → energy-VAD
 // segmenting → MediaRecorder → server STT (OpenAI), plus streaming TTS and mute.
 // This replaced the browser Web Speech API, whose mobile behaviour was
@@ -8,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Logo } from "@/components/Logo";
+import { PcmBuffer } from "@/lib/pcm";
 import { trackEvent } from "@/lib/analytics";
 import {
   SAMPLE_WRITTEN_QUESTIONS,
@@ -126,23 +129,7 @@ function parseScore(text: string): number | null {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
 }
 
-/** True when the latest pass has no real interviewer question after it. */
-function shouldAdvanceAfterPass(turns: Msg[]): boolean {
-  let lastPassIdx = -1;
-  for (let i = 0; i < turns.length; i += 1) {
-    if (turns[i].speaker !== "trainer") continue;
-    const score = parseScore(turns[i].text);
-    if (score != null && score >= PASS_THRESHOLD) lastPassIdx = i;
-  }
-  if (lastPassIdx < 0) return false;
-  for (let i = lastPassIdx + 1; i < turns.length; i += 1) {
-    const t = turns[i];
-    if (t.speaker !== "interviewer") continue;
-    const text = t.text.trim();
-    if (text && !text.startsWith("[connection error")) return false;
-  }
-  return true;
-}
+
 
 // T-18: filler / acknowledgement words that, on their own, aren't a real answer.
 const FILLER_WORDS = new Set([
@@ -212,6 +199,7 @@ export default function InterviewRoom({
       text: displayTurnText(t.speaker, t.text),
     })),
   );
+  const { t } = useLanguage();
   const questionLimit = interviewQuestionLimit(durationMinutes);
   const questionsAsked = messages.filter((m) => m.speaker === "interviewer").length;
   const progress = Math.min(questionsAsked, questionLimit);
@@ -223,6 +211,10 @@ export default function InterviewRoom({
   // Voice-capture UI state: connecting = opening the realtime link; recording =
   // the candidate is speaking (server VAD); interim = live partial transcript.
   const [connecting, setConnecting] = useState(true);
+  const [modelAnswer, setModelAnswer] = useState("");
+  const [autoSubmit, setAutoSubmit] = useState(false);
+  const autoSubmitRef = useRef(false);
+  autoSubmitRef.current = autoSubmit;
   const [recording, setRecording] = useState(false);
   const [interim, setInterim] = useState("");
   const [aiSpeaking, setAiSpeaking] = useState(false);
@@ -406,6 +398,7 @@ export default function InterviewRoom({
   // Avoid cutting a normal first question at an arbitrary 80-character
   // boundary. That created a network gap between TTS requests and sounded
   // like the interviewer stuttered at the start of the room.
+  const speechGenerationRef = useRef(0);
   const TTS_MIN_CHUNK = 320;
   const SAMPLE_RATE = 24000; // OpenAI pcm output rate
   const SCHED_LEAD = 0.35; // seconds of head-start when (re)starting from idle
@@ -464,6 +457,8 @@ export default function InterviewRoom({
       if (nextStartRef.current < now + 0.02) nextStartRef.current = now + SCHED_LEAD;
       const startAt = nextStartRef.current;
       src.start(startAt);
+      aiSpeakingRef.current = true;
+      setAiSpeaking(true);
       nextStartRef.current = startAt + buf.duration;
       activeSourcesRef.current.add(src);
       src.onended = () => {
@@ -488,42 +483,25 @@ export default function InterviewRoom({
       });
       if (!res.ok || !res.body) throw new Error("tts");
       const reader = res.body.getReader();
-      let leftover: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+      const pcm = new PcmBuffer(BLOCK_BYTES);
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (cancelSpeakRef.current) {
+        if (cancelSpeakRef.current || ac.signal.aborted) {
           await reader.cancel().catch(() => {});
           return;
         }
-        let bytes: Uint8Array<ArrayBufferLike> = value;
-        if (leftover.length) {
-          const merged = new Uint8Array(leftover.length + value.length);
-          merged.set(leftover);
-          merged.set(value, leftover.length);
-          bytes = merged;
-          leftover = new Uint8Array(0);
-        }
-        if (bytes.length >= BLOCK_BYTES) {
-          const usable = bytes.length - (bytes.length % 2);
-          // Copy to a fresh, 2-byte-aligned buffer before the Int16 view.
-          const int16 = new Int16Array(new Uint8Array(bytes.subarray(0, usable)).buffer);
-          scheduleBlock(ctx, int16);
-          leftover = usable < bytes.length ? bytes.slice(usable) : new Uint8Array(0);
-        } else {
-          leftover = bytes;
-        }
+        scheduleBlock(ctx, pcm.push(value));
       }
-      if (!cancelSpeakRef.current && leftover.length >= 2) {
-        const usable = leftover.length - (leftover.length % 2);
-        const int16 = new Int16Array(new Uint8Array(leftover.subarray(0, usable)).buffer);
-        scheduleBlock(ctx, int16);
+      if (!cancelSpeakRef.current && !ac.signal.aborted) {
+        scheduleBlock(ctx, pcm.push(new Uint8Array(0), true));
       }
     },
     [interviewId, scheduleBlock],
   );
 
   const stopSpeaking = useCallback(() => {
+    speechGenerationRef.current++;
     cancelSpeakRef.current = true;
     ttsQueueRef.current = [];
     ttsPendingRef.current = "";
@@ -550,6 +528,7 @@ export default function InterviewRoom({
     const ctx = audioCtxRef.current;
     if (ctx) nextStartRef.current = ctx.currentTime;
     drainingRef.current = false;
+    aiSpeakingRef.current = false;
     setAiSpeaking(false);
     setSpeakingAgent(null);
   }, [clearTtsFlushTimer]);
@@ -563,11 +542,13 @@ export default function InterviewRoom({
   const startDrain = useCallback(async () => {
     if (drainingRef.current) return;
     drainingRef.current = true;
+    const generation = speechGenerationRef.current;
     if (endTimerRef.current) {
       clearTimeout(endTimerRef.current);
       endTimerRef.current = null;
     }
     const ctx = await ensureAudioRunning();
+    if (generation !== speechGenerationRef.current) return;
     if (!ctx || ctx.state !== "running") {
       // Autoplay blocked — keep queued text and ask the candidate to tap.
       drainingRef.current = false;
@@ -584,6 +565,7 @@ export default function InterviewRoom({
         try {
           const before = nextStartRef.current;
           await streamChunk(ctx, next);
+          if (generation !== speechGenerationRef.current) return;
           if (nextStartRef.current > before) {
             scheduledAny = true;
             // Only claim "speaking" after real PCM was scheduled on a running context.
@@ -598,6 +580,7 @@ export default function InterviewRoom({
         }
       }
     } finally {
+      if (generation !== speechGenerationRef.current) return;
       drainingRef.current = false;
       if (scheduledAny && ctx.state === "running" && markedSpeaking) {
         if (speakingAgentRef.current === "interviewer") {
@@ -865,6 +848,7 @@ export default function InterviewRoom({
           }),
           signal: ac.signal,
         });
+        if (res.status === 403) { window.location.assign("/pricing"); return; }
         if (opts.completeAfterAnswer && res.status === 204) {
           handleFinish();
           return;
@@ -895,6 +879,7 @@ export default function InterviewRoom({
         }
         // Ensure the final rendered bubble carries no control markers.
         const finalText = stripMarkers(buffer);
+        if (agent === "trainer" && opts.coachingStyle === "model") setModelAnswer(finalText);
         setMessages((m) => {
           const copy = [...m];
           copy[copy.length - 1] = { speaker: agent, text: finalText };
@@ -978,7 +963,7 @@ export default function InterviewRoom({
       }
       void idx;
     },
-    [interviewId, language, messages.length, mode, enqueueSpeech, finalizeSpeech, handleFinish, stopSpeaking],
+    [interviewId, language, messages.length, mode, enqueueSpeech, finalizeSpeech, handleFinish, stopSpeaking, writtenLimit],
   );
 
   // T-12: clear the score gate whenever the candidate starts a fresh answer,
@@ -995,6 +980,7 @@ export default function InterviewRoom({
     resetIdleReminders();
     stopSpeaking();
     setShowPassHandoff(false);
+    setModelAnswer("");
     setLastScore(null);
     setLastGradedTranscript("");
     setEditingTranscript(false);
@@ -1015,41 +1001,6 @@ export default function InterviewRoom({
     resetIdleReminders,
     stopSpeaking,
   ]);
-
-  // Passing answers should flow into the next question automatically. Keep the
-  // completed Trainer feedback + Pass badge visible for 3s (no trainer TTS),
-  // then advance without making the candidate repeat a question they passed.
-  useEffect(() => {
-    if (
-      mode !== "practice" ||
-      busy ||
-      activeWritten ||
-      lastScore == null ||
-      lastScore < PASS_THRESHOLD ||
-      !showPassHandoff
-    ) {
-      return;
-    }
-    let cancelled = false;
-    let retryTimer: number | undefined;
-    const timer = window.setTimeout(() => {
-      const tryAdvance = () => {
-        if (cancelled) return;
-        // Wait out any in-flight request rather than dropping the handoff.
-        if (busyRef.current) {
-          retryTimer = window.setTimeout(tryAdvance, 250);
-          return;
-        }
-        continueToNextQuestion();
-      };
-      tryAdvance();
-    }, 3000);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      if (retryTimer != null) window.clearTimeout(retryTimer);
-    };
-  }, [activeWritten, busy, continueToNextQuestion, lastScore, mode, showPassHandoff]);
 
   // T-01: 2-minute-silence nudge. Fires only when the candidate has NOT begun
   // answering (guarded by the arming effect below and re-checked here via refs).
@@ -1247,10 +1198,17 @@ export default function InterviewRoom({
     const next = transcriptDraft.trim();
     if (!next || busyRef.current) return;
     setEditingTranscript(false);
-    handleUserUtterance(next);
-  }, [transcriptDraft, handleUserUtterance]);
+    void runAgent("trainer", { question: lastQuestionRef.current, answer: next, userText: next, replaceLastUserTurn: true });
+    setLastGradedTranscript(next);
+  }, [transcriptDraft, runAgent]);
 
   const prepareRetry = useCallback(() => {
+    stopSpeaking();
+    clearSilenceTimer();
+    realtimeRef.current?.discardPending();
+    answerBufferRef.current = "";
+    setHasPendingAnswer(false);
+    setInterim("");
     setLastScore(null);
     setShowPassHandoff(false);
     setClearExchangeUI(false);
@@ -1266,13 +1224,13 @@ export default function InterviewRoom({
       setLastQuestion(byPrompt.prompt.trim());
     }
     const prompt = byPrompt
-      ? "Take your time. Complete the written card again when you're ready."
-      : "Take your time. Try the same question again when you're ready.";
+      ? (language?.startsWith("zh") ? "慢慢来，准备好后可重新完成这道笔试题。" : "Take your time. Complete the written card again when you're ready.")
+      : (language?.startsWith("zh") ? "准备好后，请重新回答同一道题。" : "Take your time. Try the same question again when you're ready.");
     setMessages((current) => [...current, { speaker: "trainer", text: prompt }]);
     setSpeakingAgent("trainer");
     enqueueSpeech(prompt);
     finalizeSpeech();
-  }, [enqueueSpeech, finalizeSpeech, resetIdleReminders]);
+  }, [enqueueSpeech, finalizeSpeech, resetIdleReminders, stopSpeaking, clearSilenceTimer, language]);
 
   const showModelAnswer = useCallback(() => {
     if (!lastGradedTranscript || busyRef.current) return;
@@ -1286,6 +1244,7 @@ export default function InterviewRoom({
   // Submit whatever the candidate has said so far (idle-triggered or via the
   // explicit "Done" button). Coaching only fires here, never mid-answer.
   const submitBufferedAnswer = useCallback(() => {
+    if (busyRef.current || leavingRef.current) return;
     clearSilenceTimer();
     const answer = answerBufferRef.current.trim();
     answerBufferRef.current = "";
@@ -1309,7 +1268,7 @@ export default function InterviewRoom({
         : clean;
       setHasPendingAnswer(true);
       clearSilenceTimer();
-      if (!busyRef.current) {
+      if (!busyRef.current && autoSubmitRef.current) {
         silenceTimerRef.current = setTimeout(() => {
           silenceTimerRef.current = null;
           if (busyRef.current) return;
@@ -1389,7 +1348,9 @@ export default function InterviewRoom({
         onFinalUtterance(text);
       },
       onError: () => {
-        /* transient realtime errors: keep the session; user can still type */
+        if (cancelled) return;
+        setConnecting(false); setListening(false);
+        setMicError("Live voice disconnected. Reload to reconnect, or type your answer below.");
       },
     })
       .then((c) => {
@@ -1497,15 +1458,13 @@ export default function InterviewRoom({
 
   // Resume rules (dashboard re-entry / refresh):
   // - No interviewer yet → ask the first question (spoken via stream TTS).
-  // - Practice pass with no next interviewer yet → advance + speak next Q.
+  // - Practice feedback stays on its question until the candidate chooses next.
   // - Otherwise stay on the current question and SPEAK it so the room feels live.
   // - Interview mode + latest user turn → interviewer should respond.
   useEffect(() => {
     const currentQuestion =
       initialTurns.filter((turn) => turn.speaker === "interviewer").at(-1)?.text ?? "";
     const hasInterviewer = currentQuestion.trim().length > 0;
-    const advanceAfterPass =
-      mode === "practice" && shouldAdvanceAfterPass(initialTurns);
 
     const roundMeta = (() => {
       let lastInterviewerIdx = -1;
@@ -1529,18 +1488,18 @@ export default function InterviewRoom({
         const turn = initialTurns[i];
         if (turn.speaker === "interviewer") break;
         if (turn.speaker === "trainer") {
-          latestTrainer = turn;
           const score = parseScore(turn.text);
-          if (score != null && score >= PASS_THRESHOLD) passed = true;
+          if (score != null) { latestTrainer = turn; passed = score >= PASS_THRESHOLD; }
         }
         if (turn.speaker === "user") latestUser = turn;
       }
       return { passed, latestTrainer, latestUser };
     })();
 
-    // Restore failing/unscored gate only — a pass advances below.
-    if (roundMeta.latestTrainer && !roundMeta.passed && !advanceAfterPass) {
+    // Restore the most recent score without advancing the question.
+    if (roundMeta.latestTrainer) {
       setLastScore(parseScore(roundMeta.latestTrainer.text));
+      setShowPassHandoff(roundMeta.passed);
     }
     if (roundMeta.latestUser) setLastGradedTranscript(roundMeta.latestUser.text);
 
@@ -1557,16 +1516,6 @@ export default function InterviewRoom({
         void handleFinish();
         return;
       }
-      resumeSpeechPendingRef.current = "__await_next__";
-      setSpeechUnlockNeeded(true);
-      void runAgent("interviewer", {});
-      return;
-    }
-    if (advanceAfterPass || (mode === "practice" && roundMeta.passed)) {
-      // Passed round already persisted — advance without replaying pass TTS.
-      setClearExchangeUI(true);
-      setLastScore(null);
-      setShowPassHandoff(false);
       resumeSpeechPendingRef.current = "__await_next__";
       setSpeechUnlockNeeded(true);
       void runAgent("interviewer", {});
@@ -1615,7 +1564,7 @@ export default function InterviewRoom({
     typeof RTCPeerConnection !== "undefined";
 
   return (
-    <div className="safe-pt safe-px mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-hidden px-3 sm:px-6 lg:max-w-7xl lg:px-10">
+    <div className="safe-pt safe-px mx-auto flex h-[calc(100dvh-2.5rem)] w-full max-w-6xl flex-col overflow-hidden px-3 sm:px-6 lg:max-w-7xl lg:px-10">
       <header className="flex shrink-0 flex-col gap-2 border-b border-gray-200 pb-2 pt-1 sm:flex-row sm:items-end sm:justify-between sm:pb-3">
         <div className="min-w-0">
           <Link href="/dashboard" className="mb-1 inline-flex"><Logo compact showTagline /></Link>
@@ -1624,7 +1573,7 @@ export default function InterviewRoom({
           </h1>
           <div className="mt-2 w-full max-w-sm" aria-label={`Question progress: ${progress} of ${questionLimit}`}>
             <div className="mb-1 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-              <span>Question progress</span><span>{progress}/{questionLimit}</span>
+              <span><T>{"Question progress"}</T></span><span>{progress}/{questionLimit}</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
               <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${(progress / questionLimit) * 100}%` }} />
@@ -1641,7 +1590,7 @@ export default function InterviewRoom({
                   : "border-gray-300 bg-white text-gray-800"
               }`}
             >
-              <span className="text-[10px] uppercase tracking-wide opacity-70">Time</span>
+              <span className="text-[10px] uppercase tracking-wide opacity-70"><T>{"Time"}</T></span>
               <span>
                 {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}
               </span>
@@ -1656,7 +1605,7 @@ export default function InterviewRoom({
                 : "border-gray-300 bg-white text-gray-800"
             }`}
           >
-            {muted ? "Unmute" : "Mute"}
+            {muted ? <T>{"Unmute"}</T> : <T>{"Mute"}</T>}
           </button>
           <button
             type="button"
@@ -1664,32 +1613,24 @@ export default function InterviewRoom({
             onClick={handlePause}
             className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 text-xs font-semibold text-white disabled:opacity-60"
           >
-            {pausing ? "Pausing…" : "Pause & leave"}
+            {pausing ? <T>{"Pausing…"}</T> : <T>{"Pause & leave"}</T>}
           </button>
-          <button type="button" disabled={finishing} onClick={handleFinish} className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-800 disabled:opacity-60">End interview</button>
+          <button type="button" disabled={finishing} onClick={handleFinish} className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-800 disabled:opacity-60"><T>{"End interview"}</T></button>
         </div>
       </header>
 
       {timeExpired && (
-        <div role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
-          Time limit reached — finishing this interview safely.
-        </div>
+        <div role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700"><T>{"Time limit reached — finishing this interview safely."}</T></div>
       )}
 
       {timeExpired && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/35 px-4" role="presentation">
           <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="time-expired-title">
-            <h2 id="time-expired-title" className="text-lg font-semibold text-gray-900">Time is up</h2>
-            <p className="mt-2 text-sm leading-6 text-gray-600">
-              Your interview time has ended. Would you like to return to your practice space or view the report?
-            </p>
+            <h2 id="time-expired-title" className="text-lg font-semibold text-gray-900"><T>{"Time is up"}</T></h2>
+            <p className="mt-2 text-sm leading-6 text-gray-600"><T>{"Your interview time has ended. Would you like to return to your practice space or view the report?"}</T></p>
             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button type="button" className="min-h-10 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50" onClick={() => router.push("/dashboard")}>
-                Back to dashboard
-              </button>
-              <button type="button" className="min-h-10 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800" onClick={() => router.push(`/interview/${interviewId}/report`)}>
-                View report
-              </button>
+              <button type="button" className="min-h-10 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50" onClick={() => router.push("/dashboard")}><T>{"Back to dashboard"}</T></button>
+              <button type="button" className="min-h-10 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800" onClick={() => router.push(`/interview/${interviewId}/report`)}><T>{"View report"}</T></button>
             </div>
           </div>
         </div>
@@ -1707,45 +1648,32 @@ export default function InterviewRoom({
         <label
           htmlFor="expr-level"
           className="text-xs font-semibold uppercase tracking-wide text-gray-700"
-        >
-          Expression level
-        </label>
+        ><T>{"Expression level"}</T></label>
         <select
           id="expr-level"
           value={expressionLevel}
           onChange={(e) => setExpressionLevel(e.target.value as ExpressionLevel)}
           className="min-h-9 w-full rounded-lg border border-gray-400 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 shadow-sm sm:w-auto sm:min-w-[18rem]"
         >
-          <option value="clear">Clear · plain words, short sentences</option>
-          <option value="professional">Professional · standard workplace tone</option>
-          <option value="advanced">Advanced · domain terms &amp; depth</option>
-          <option value="expert">Expert · dense &amp; rigorous</option>
+          <option value="clear"><T>{"Clear · plain words, short sentences"}</T></option>
+          <option value="professional"><T>{"Professional · standard workplace tone"}</T></option>
+          <option value="advanced"><T>{"Advanced · domain terms & depth"}</T></option>
+          <option value="expert"><T>{"Expert · dense & rigorous"}</T></option>
         </select>
-        <span className="w-full text-xs text-gray-500 sm:w-auto">
-          Changes how elaborate the AI talks — not the role difficulty
-        </span>
+        <span className="w-full text-xs text-gray-500 sm:w-auto"><T>{"Changes how elaborate the AI talks — not the role difficulty"}</T></span>
       </div>
 
       {/* T-28: quiet-room / headphones tip — ambient noise is the #1 false-capture source. */}
       <p className="mt-1 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] leading-4 text-amber-900">
         {mode === "interview" ? (
-          <>
-            Formal interview mode — answer each question, then the interviewer moves on.
-            Headphones recommended so the mic doesn&apos;t pick up the AI or room noise.
-          </>
+          <><T>{"Formal interview mode — answer each question, then the interviewer moves on. Headphones recommended so the mic doesn't pick up the AI or room noise."}</T></>
         ) : (
-          <>
-            Find a quiet place to practice. Headphones recommended so the mic doesn&apos;t
-            pick up the AI or room noise.
-          </>
+          <><T>{"Find a quiet place to practice. Headphones recommended so the mic doesn't pick up the AI or room noise."}</T></>
         )}
       </p>
 
       {!supported && (
-        <div className="mt-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-          This browser can’t record audio for voice answers — type your answers
-          below, or try a recent Chrome/Safari.
-        </div>
+        <div className="mt-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800"><T>{"This browser can’t record audio for voice answers — type your answers below, or try a recent Chrome/Safari."}</T></div>
       )}
 
       {micError && (
@@ -1753,7 +1681,7 @@ export default function InterviewRoom({
           role="alert"
           className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-800"
         >
-          {micError}
+          <T>{micError}</T>
         </div>
       )}
 
@@ -1788,8 +1716,7 @@ export default function InterviewRoom({
             {/* Top: Current Question */}
             <div className={`flex min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${activeWritten ? "max-h-[16vh] lg:max-h-[18vh]" : "max-h-[30vh] lg:max-h-none"} ${interviewerSpeaking ? "border-indigo-400 bg-indigo-100" : "border-indigo-200 bg-indigo-50"}`}>
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
-                  Current question{interviewerSpeaking ? " · speaking" : ""}
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600"><T>{"Current question"}</T>{interviewerSpeaking ? " · speaking" : ""}
                 </p>
                 <SpeakingIndicator active={interviewerSpeaking} tone="interviewer" />
               </div>
@@ -1804,22 +1731,19 @@ export default function InterviewRoom({
             {showTrainer ? (
               <div className={`flex min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${activeWritten ? "max-h-[16vh] lg:max-h-[18vh]" : "max-h-[30vh] lg:max-h-none"} ${trainerSpeaking ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                    Trainer{trainerSpeaking ? " · speaking" : ""}
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700"><T>{"Trainer"}</T>{trainerSpeaking ? " · speaking" : ""}
                   </p>
                   <SpeakingIndicator active={trainerSpeaking} tone="trainer" />
                 </div>
                 <div aria-live="polite" className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-gray-900 sm:text-sm sm:leading-5">
                   {renderRich(trainerText)}
-                  {lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800">Score {lastScore}/100</p> : null}
+                  {lastScore != null ? <p className="mt-2 text-xs font-semibold text-amber-800"><T>{"Score"}</T>{lastScore}/100</p> : null}
                   {showPassHandoff && lastScore != null && lastScore >= PASS_THRESHOLD ? (
                     <div
                       role="status"
                       className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-900"
                     >
-                      <span aria-hidden="true">✓</span>
-                      Pass — next question in 3s
-                    </div>
+                      <span aria-hidden="true">✓</span><T>{"Pass — choose next or try again"}</T></div>
                   ) : null}
                 </div>
               </div>
@@ -1827,8 +1751,7 @@ export default function InterviewRoom({
             {/* Bottom: Your answer */}
             <div className={`flex min-h-0 flex-col overflow-y-auto rounded-xl border px-3 py-2.5 sm:px-4 ${activeWritten ? "max-h-[16vh] lg:max-h-[18vh]" : "max-h-[30vh] lg:max-h-none"} ${userSpeaking ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                  Your answer{userSpeaking ? " · speaking" : ""}
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700"><T>{"Your answer"}</T>{userSpeaking ? " · speaking" : ""}
                 </p>
                 <SpeakingIndicator active={!!userSpeaking} tone="user" />
               </div>
@@ -1845,20 +1768,24 @@ export default function InterviewRoom({
           role="status"
           className="mt-2 shrink-0 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-center"
         >
-          <p className="text-sm font-bold uppercase tracking-wide text-emerald-900">Pass</p>
-          <p className="mt-1 text-xs text-emerald-800">
-            Score {lastScore}/100 — advancing to the next question…
+          <p className="text-sm font-bold uppercase tracking-wide text-emerald-900"><T>{"Pass"}</T></p>
+          <p className="mt-1 text-xs text-emerald-800"><T>{"Score"}</T>{lastScore}/100 — You can repeat this answer even after passing.
           </p>
         </div>
       )}
 
-      {mode === "practice" && lastScore != null && !activeWritten && !(showPassHandoff && lastScore >= PASS_THRESHOLD) && (
+      {mode === "practice" && modelAnswer && !activeWritten && (
+        <details open className="mt-2 shrink-0 rounded-xl border border-violet-200 bg-violet-50 p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-violet-900"><T>{"Reference answer — keep it visible while you retry"}</T></summary>
+          <div className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-sm">{renderRich(modelAnswer)}</div>
+        </details>
+      )}
+
+      {mode === "practice" && lastScore != null && !activeWritten && (
         <div className="mt-2 shrink-0 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
           {editingTranscript ? (
             <div className="flex flex-col gap-2">
-              <label htmlFor="edit-transcript" className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-                Edit transcript
-              </label>
+              <label htmlFor="edit-transcript" className="text-xs font-semibold uppercase tracking-wide text-gray-600"><T>{"Edit transcript"}</T></label>
               <textarea
                 id="edit-transcript"
                 value={transcriptDraft}
@@ -1873,27 +1800,23 @@ export default function InterviewRoom({
                   disabled={busy || !transcriptDraft.trim()}
                   onClick={submitEditedTranscript}
                   className="min-h-9 rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-                >
-                  Re-score
-                </button>
+                ><T>{"Re-score"}</T></button>
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() => setEditingTranscript(false)}
                   className="min-h-9 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-xs font-medium text-gray-700"
-                >
-                  Cancel
-                </button>
+                ><T>{"Cancel"}</T></button>
               </div>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/50 pb-2">
                 <div className="text-xs text-amber-900 font-medium">
-                  Not passed yet · Your Score: <span className="text-sm font-bold text-amber-800">{lastScore}/100</span>
+                  {t(lastScore >= PASS_THRESHOLD ? "Passed · Score:" : "Keep practicing · Score:")} <span className="text-sm font-bold text-amber-800">{lastScore}/100</span>
                 </div>
                 <div className="text-[10px] text-gray-500">
-                  Below {PASS_THRESHOLD}/100 — improve this answer, or skip this question if you prefer.
+                  {lastScore >= PASS_THRESHOLD ? <T>{"You can repeat this answer even after passing."}</T> : `Below ${PASS_THRESHOLD}/100 — improve this answer, or skip this question if you prefer.`}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1902,27 +1825,21 @@ export default function InterviewRoom({
                     type="button"
                     onClick={openEditTranscript}
                     className="min-h-9 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-900 hover:opacity-85"
-                  >
-                    ✏️ Edit transcript
-                  </button>
+                  ><T>{"✏️ Edit transcript"}</T></button>
                 )}
                 {!busy && (
                   <button
                     type="button"
                     onClick={prepareRetry}
                     className="min-h-9 rounded-full border border-amber-300 bg-amber-100 px-4 py-1.5 text-xs font-semibold text-amber-900 hover:opacity-85"
-                  >
-                    🔄 Try again
-                  </button>
+                  ><T>{"🔄 Try again"}</T></button>
                 )}
                 {lastGradedTranscript && !busy && (
                   <button
                     type="button"
                     onClick={showModelAnswer}
                     className="min-h-9 rounded-full border border-violet-200 bg-violet-50 px-4 py-1.5 text-xs font-semibold text-violet-900 hover:opacity-85"
-                  >
-                    ✨ See model answer
-                  </button>
+                  ><T>{"✨ See model answer"}</T></button>
                 )}
                 {!busy && (
                   <button
@@ -1930,7 +1847,7 @@ export default function InterviewRoom({
                     onClick={() => continueToNextQuestion({ forceNext: true })}
                     className="min-h-9 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:opacity-85"
                   >
-                    Skip this question →
+                    {lastScore >= PASS_THRESHOLD ? <T>{"Next question →"}</T> : <T>{"Skip this question →"}</T>}
                   </button>
                 )}
               </div>
@@ -1952,8 +1869,8 @@ export default function InterviewRoom({
         >
           <div className="mx-auto flex h-full w-full max-w-lg min-h-0 flex-col">
             <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-gray-900">Written test</p>
-              <p className="text-[11px] text-gray-500">Scroll for all options</p>
+              <p className="text-sm font-semibold text-gray-900"><T>{"Written test"}</T></p>
+              <p className="text-[11px] text-gray-500"><T>{"Scroll for all options"}</T></p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               <QuestionCard
@@ -2018,7 +1935,7 @@ export default function InterviewRoom({
                   }`}
                   aria-hidden
                 />
-                <span className="text-gray-500">{label}</span>
+                <span className="text-gray-500">{t(label)}</span>
               </>
             );
           })()}
@@ -2028,44 +1945,40 @@ export default function InterviewRoom({
         {/* T-01: reminder options, surfaced after two silent nudges. */}
         {showIdleOptions && !busy && !hasPendingAnswer && !activeWritten ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-gray-500">No rush —</span>
+            <span className="text-xs text-gray-500"><T>{"No rush —"}</T></span>
             <button
               type="button"
               onClick={repeatQuestion}
               className="min-h-9 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700"
-            >
-              🔁 Repeat question
-            </button>
+            ><T>{"🔁 Repeat question"}</T></button>
             {mode === "practice" ? (
               <button
                 type="button"
                 onClick={requestHint}
                 className="min-h-9 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900"
-              >
-                💡 Hint
-              </button>
+              ><T>{"💡 Hint"}</T></button>
             ) : null}
             <button
               type="button"
               onClick={skipQuestion}
               className="min-h-9 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700"
-            >
-              ⏭ Skip
-            </button>
+            ><T>{"⏭ Skip"}</T></button>
           </div>
         ) : null}
 
         {/* Keep any optional submit action separate from the exchange; primary
             meeting controls live in the header to preserve vertical space. */}
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          {false && hasPendingAnswer && !busy ? (
+          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={autoSubmit} onChange={e => { setAutoSubmit(e.target.checked); clearSilenceTimer(); }} /><T>{"Auto-submit after a pause"}</T></label>
+          {(hasPendingAnswer || interim) && !busy ? <button type="button" className="min-h-10 rounded-xl border px-4 text-sm" onClick={() => {
+            clearSilenceTimer(); realtimeRef.current?.discardPending(); answerBufferRef.current = ""; setHasPendingAnswer(false); setInterim(""); setRecording(false);
+          }}><T>{"Discard & record again"}</T></button> : null}
+          {hasPendingAnswer && !busy ? (
             <button
               type="button"
               onClick={submitBufferedAnswer}
               className="min-h-10 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
-            >
-              Done — submit ↵
-            </button>
+            ><T>{"Done — submit ↵"}</T></button>
           ) : null}
         </div>
       </div>
@@ -2099,9 +2012,7 @@ function TypeFallback({
     <div className="safe-pb mt-3 shrink-0 border-t border-gray-200 bg-[#f6f5f0] pt-3">
       {writtenQuestions.length > 0 && (
         <div className="mb-3">
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">
-            Written questions
-          </p>
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500"><T>{"Written questions"}</T></p>
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {writtenQuestions.map((q) => (
               <button
@@ -2148,9 +2059,7 @@ function TypeFallback({
           type="submit"
           disabled={disabled}
           className="min-h-11 shrink-0 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-40"
-        >
-          Send
-        </button>
+        ><T>{"Send"}</T></button>
       </form>
     </div>
   );

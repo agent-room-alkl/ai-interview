@@ -6,6 +6,7 @@
 
 export interface RealtimeSTTController {
   close(): void;
+  discardPending(): void;
   setMuted(muted: boolean): void;
 }
 
@@ -81,11 +82,20 @@ export async function connectRealtimeSTT(
 
   // Accumulate delta chunks into a per-turn interim string; reset on completed.
   let interim = "";
+  let currentItem: string | undefined;
+  const discarded = new Set<string>();
   const dc = pc.createDataChannel("oai-events");
-  dc.onopen = () => cb.onOpen?.();
+  const openTimeout = setTimeout(() => {
+    if (dc.readyState !== "open") { pc.close(); cleanupStream(); cb.onError?.("voice_connection_timeout"); }
+  }, 20000);
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed" || pc.connectionState === "disconnected") cb.onError?.("voice_disconnected");
+  };
+  dc.onopen = () => { clearTimeout(openTimeout); cb.onOpen?.(); };
   dc.onmessage = (ev) => {
     let msg: {
       type?: string;
+      item_id?: string;
       delta?: string;
       transcript?: string;
       error?: { message?: string };
@@ -95,8 +105,10 @@ export async function connectRealtimeSTT(
     } catch {
       return;
     }
+    if (msg.item_id && discarded.has(msg.item_id)) return;
     switch (msg.type) {
       case "input_audio_buffer.speech_started":
+        currentItem = msg.item_id;
         interim = "";
         cb.onSpeechStart?.();
         break;
@@ -129,15 +141,23 @@ export async function connectRealtimeSTT(
     } catch {
       /* noop */
     }
+    clearTimeout(openTimeout);
     cleanupStream();
     throw e;
   }
 
   return {
+    discardPending() {
+      if (currentItem) discarded.add(currentItem);
+      interim = "";
+      if (dc.readyState === "open") dc.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
+    },
     setMuted(muted: boolean) {
       if (track) track.enabled = !muted;
     },
     close() {
+      clearTimeout(openTimeout);
+      pc.onconnectionstatechange = null;
       try {
         dc.close();
       } catch {

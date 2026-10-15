@@ -19,12 +19,12 @@ function assert(cond, msg) {
   else console.log("OK:", msg);
 }
 
-assert(src.includes("export const PASS_THRESHOLD = 80"), "PASS_THRESHOLD=80");
+assert(src.includes("export const PASS_THRESHOLD = 75"), "PASS_THRESHOLD=75");
 assert(src.includes("SCORE_BANDS"), "SCORE_BANDS exported");
 assert(src.includes("SCORING RUBRIC (T-27)"), "T-27 rubric in trainer prompt");
 assert(src.includes("0–29"), "empty/noise band documented");
-assert(src.includes("60–79"), "partial band documented");
-assert(src.includes("80–89"), "strong-pass band documented");
+assert(src.includes("60–${PASS_THRESHOLD - 1}"), "partial band documented");
+assert(src.includes("${PASS_THRESHOLD}–89"), "strong-pass band documented");
 assert(
   src.includes("do NOT park a strong answer in the 60s"),
   "ASR mid-band anti-parking rule",
@@ -38,11 +38,11 @@ assert(
 const bands = {
   emptyOrNoise: [0, 29],
   vague: [30, 59],
-  partial: [60, 79],
-  strongPass: [80, 89],
+  partial: [60, 74],
+  strongPass: [75, 89],
   excellent: [90, 100],
 };
-assert(bands.strongPass[0] === 80, "strongPass starts at PASS_THRESHOLD");
+assert(bands.strongPass[0] === 75, "strongPass starts at PASS_THRESHOLD");
 assert(bands.partial[1] < bands.strongPass[0], "partial below pass");
 
 const failed = checks.filter((c) => !c.ok);

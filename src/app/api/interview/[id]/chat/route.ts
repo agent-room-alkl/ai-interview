@@ -1,3 +1,4 @@
+import { hasPracticeAccess } from "@/lib/practice-access";
 // T-06: POST /api/interview/[id]/chat
 // Body: { userText?: string, agent: "interviewer" | "trainer", question?: string, answer?: string }
 // Streams the requested agent's response and persists turns.
@@ -37,6 +38,7 @@ export async function POST(
   if (!interview || interview.userId !== session.user.id) {
     return new Response("not_found", { status: 404 });
   }
+  if (!(await hasPracticeAccess(session.user.id))) return new Response("access_expired", { status: 403 });
   if (!interview.targetRole) {
     return new Response("no_target_role", { status: 400 });
   }

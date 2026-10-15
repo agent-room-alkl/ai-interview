@@ -1,3 +1,4 @@
+import { T } from "@/components/LanguageProvider";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -80,15 +81,11 @@ export default async function BillingSuccessPage({
           <Link
             href="/interview/new"
             className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#17201e] px-5 py-3 text-sm font-semibold text-[#f6f5f0]"
-          >
-            Start practicing
-          </Link>
+          ><T>{"Start practicing"}</T></Link>
           <Link
             href="/dashboard"
             className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#17201e]/15 px-5 py-3 text-sm font-semibold"
-          >
-            Dashboard
-          </Link>
+          ><T>{"Dashboard"}</T></Link>
         </div>
       </div>
     </main>

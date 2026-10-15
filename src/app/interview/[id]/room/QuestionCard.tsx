@@ -1,4 +1,6 @@
 "use client";
+import { T } from "@/components/LanguageProvider";
+
 
 import { useState } from "react";
 import {
@@ -172,9 +174,7 @@ export function QuestionCard({
 
         {!submitted ? (
           <div className="mt-3 border-t border-gray-100 pt-3">
-            <label className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
-              Or answer by voice / text
-            </label>
+            <label className="text-[11px] font-medium uppercase tracking-wide text-gray-500"><T>{"Or answer by voice / text"}</T></label>
             <div className="mt-1.5 flex gap-2">
               <input
                 value={text}
@@ -188,9 +188,7 @@ export function QuestionCard({
                 disabled={disabled || grading || !text.trim()}
                 onClick={() => void submit({ kind: "text", text })}
                 className="min-h-10 shrink-0 rounded-xl bg-gray-900 px-3 text-sm font-medium text-white disabled:opacity-40"
-              >
-                Send
-              </button>
+              ><T>{"Send"}</T></button>
             </div>
           </div>
         ) : null}

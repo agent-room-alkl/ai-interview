@@ -1,3 +1,4 @@
+import { T } from "@/components/LanguageProvider";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
@@ -26,7 +27,7 @@ export default async function DashboardPage() {
   const [profile, interviews, purchases] = await Promise.all([
     prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { resumeContext: true, accessUntil: true, trialUsed: true },
+      select: { resumeContext: true, accessUntil: true, trialUsed: true, trialEndsAt: true },
     }),
     prisma.interview.findMany({
       where: { userId: session.user.id },
@@ -80,15 +81,16 @@ export default async function DashboardPage() {
       interview.status === "completed" ||
       interview.turns.some((turn) => turn.speaker === "report"),
   ).length;
-  const accessActive = hasActiveAccess(profile?.accessUntil);
-  const accessLabel = accessActive && profile?.accessUntil
+  const effectiveAccess = [profile?.accessUntil, profile?.trialEndsAt].filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0];
+  const accessActive = hasActiveAccess(effectiveAccess);
+  const accessLabel = accessActive && effectiveAccess
     ? `Active until ${new Intl.DateTimeFormat("en", {
         dateStyle: "medium",
         timeStyle: "short",
-      }).format(profile.accessUntil)}`
+      }).format(effectiveAccess)}`
     : profile?.trialUsed
-      ? "Trial used — buy a pack to continue"
-      : "Free 10-min trial available";
+      ? "Trial expired — buy a pack to continue"
+      : "24-hour free trial available";
 
   return (
     <main className="min-h-dvh bg-[#f6f5f0] text-[#17201e]">
@@ -96,13 +98,11 @@ export default async function DashboardPage() {
         <header className="flex items-start justify-between gap-4">
           <div>
             <Link href="/" className="inline-flex"><Logo /></Link>
-            <p className="text-sm text-[#65736d]">Your progress</p>
+            <p className="text-sm text-[#65736d]"><T>{"Your progress"}</T></p>
             <h1 className="mt-3 text-4xl font-semibold tracking-[-0.07em] sm:text-5xl">
               Hi, {session.user.name ?? "there"}.
             </h1>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-[#65736d]">
-              See how your interview practice is building over time.
-            </p>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-[#65736d]"><T>{"See how your interview practice is building over time."}</T></p>
           </div>
           <UserButton />
         </header>
@@ -115,9 +115,9 @@ export default async function DashboardPage() {
             ["Best score", best === null ? "—" : `${best}`, "Personal best"],
           ].map(([label, value, detail]) => (
             <article key={label} className="rounded-2xl border border-[#17201e]/10 bg-white/55 p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]">{label}</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]"><T>{label}</T></p>
               <p className="mt-4 text-4xl font-semibold tracking-[-0.06em]">{value}</p>
-              <p className="mt-2 text-xs text-[#65736d]">{detail}</p>
+              <p className="mt-2 text-xs text-[#65736d]"><T>{detail}</T></p>
             </article>
           ))}
         </section>
@@ -126,35 +126,29 @@ export default async function DashboardPage() {
           <article className="rounded-3xl bg-[#17201e] p-6 text-[#f6f5f0] sm:p-8">
             <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
               <div>
-                <p className="text-sm text-[#a9bbb2]">Keep the momentum</p>
-                <h2 className="mt-3 text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
-                  Start a tailored interview.
-                </h2>
+                <p className="text-sm text-[#a9bbb2]"><T>{"Keep the momentum"}</T></p>
+                <h2 className="mt-3 text-2xl font-semibold tracking-[-0.05em] sm:text-3xl"><T>{"Start a tailored interview."}</T></h2>
               </div>
               <Link
                 href="/interview/new"
                 className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full bg-[#d7f16a] px-5 py-3 text-sm font-semibold text-[#17201e]"
-              >
-                New interview ↗
-              </Link>
+              ><T>{"New interview ↗"}</T></Link>
             </div>
             <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3 border-t border-white/10 pt-5 text-sm text-[#c2d0c9]">
-              <span><strong className="text-[#f6f5f0]">{answerCount}</strong> answers practiced</span>
+              <span><strong className="text-[#f6f5f0]">{answerCount}</strong><T>{"answers practiced"}</T></span>
               {progress !== null ? (
                 <span>
                   <strong className={progress >= 0 ? "text-[#d7f16a]" : "text-[#f4a38a]"}>
-                    {progress >= 0 ? "+" : ""}{progress} pts
-                  </strong>{" "}since your first scored session
-                </span>
+                    {progress >= 0 ? "+" : ""}{progress}<T>{"pts"}</T></strong>{" "}<T>{"since your first scored session"}</T></span>
               ) : (
-                <span>Complete a session to see your progress trend</span>
+                <span><T>{"Complete a session to see your progress trend"}</T></span>
               )}
             </div>
           </article>
 
           <div className="grid gap-6">
             <article className="rounded-3xl border border-[#17201e]/10 bg-white/55 p-6 sm:p-8">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]">Practice access</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]"><T>{"Practice access"}</T></p>
               <h2 className="mt-3 text-xl font-semibold tracking-[-0.04em]">
                 {accessActive ? "Unlocked" : "Limited"}
               </h2>
@@ -164,17 +158,17 @@ export default async function DashboardPage() {
               </Link>
             </article>
             <article className="rounded-3xl border border-[#17201e]/10 bg-white/55 p-6 sm:p-8">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]">Résumé background</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]"><T>{"Résumé background"}</T></p>
               <h2 className="mt-3 text-xl font-semibold tracking-[-0.04em]">
                 {profile?.resumeContext ? "Ready to reuse" : "Not added yet"}
               </h2>
               <p className="mt-2 text-sm leading-6 text-[#65736d]">
                 {profile?.resumeContext
-                  ? "Your privacy-filtered background will load automatically for your next interview."
-                  : "Add a résumé once and reuse the cleaned background in future sessions."}
+                  ? <T>{"Your privacy-filtered background will load automatically for your next interview."}</T>
+                  : <T>{"Add a résumé once and reuse the cleaned background in future sessions."}</T>}
               </p>
               <Link href="/interview/new" className="mt-5 inline-flex text-sm font-semibold underline underline-offset-4">
-                {profile?.resumeContext ? "Review résumé background →" : "Add résumé →"}
+                {profile?.resumeContext ? <T>{"Review résumé background →"}</T> : <T>{"Add résumé →"}</T>}
               </Link>
             </article>
           </div>
@@ -183,10 +177,10 @@ export default async function DashboardPage() {
         <section className="mt-6 rounded-3xl border border-[#17201e]/10 bg-white/55 p-6 sm:p-8">
           <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]">Score trend</p>
-              <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em]">Your recent scored sessions</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]"><T>{"Score trend"}</T></p>
+              <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em]"><T>{"Your recent scored sessions"}</T></h2>
             </div>
-            {progress !== null ? <p className="text-sm text-[#65736d]">{progress >= 0 ? "Moving in the right direction" : "Keep practicing the weak spots"}</p> : null}
+            {progress !== null ? <p className="text-sm text-[#65736d]">{progress >= 0 ? <T>{"Moving in the right direction"}</T> : <T>{"Keep practicing the weak spots"}</T>}</p> : null}
           </div>
           {scored.length ? (
             <div className="mt-6 flex h-40 items-end gap-2 border-b border-[#17201e]/10 pb-0 sm:gap-3">
@@ -208,15 +202,13 @@ export default async function DashboardPage() {
                 ))}
             </div>
           ) : (
-            <div className="mt-6 rounded-2xl border border-dashed border-[#17201e]/15 px-4 py-8 text-center text-sm text-[#65736d]">
-              Your score trend will appear here after you finish your first interview.
-            </div>
+            <div className="mt-6 rounded-2xl border border-dashed border-[#17201e]/15 px-4 py-8 text-center text-sm text-[#65736d]"><T>{"Your score trend will appear here after you finish your first interview."}</T></div>
           )}
         </section>
 
         <section className="mt-6 rounded-3xl border border-[#17201e]/10 bg-white/55 p-6 sm:p-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]">Billing</p>
-          <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em]">Purchase history</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]"><T>{"Billing"}</T></p>
+          <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em]"><T>{"Purchase history"}</T></h2>
           <PurchaseHistory
             purchases={purchases.map((p) => ({
               id: p.id,
@@ -233,8 +225,8 @@ export default async function DashboardPage() {
         <section className="mt-6">
           <div className="flex items-end justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]">History</p>
-              <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em]">Recent practice</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#65736d]"><T>{"History"}</T></p>
+              <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em]"><T>{"Recent practice"}</T></h2>
             </div>
           </div>
           <div className="mt-4 divide-y divide-[#17201e]/10 rounded-2xl border border-[#17201e]/10 bg-white/55">
@@ -267,7 +259,7 @@ export default async function DashboardPage() {
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold">{interview.targetRole ?? "Role selection in progress"}</span>
-                    <span className="mt-1 block text-xs text-[#65736d]">{new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(interview.createdAt)} · {interview.mode === "practice" ? "Practice" : "Interview"}</span>
+                    <span className="mt-1 block text-xs text-[#65736d]">{new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(interview.createdAt)} · {interview.mode === "practice" ? <T>{"Practice"}</T> : <T>{"Interview"}</T>}</span>
                   </span>
                   <span className="shrink-0 text-right">
                     <span className="block text-lg font-semibold">{statusLabel}</span>
@@ -276,7 +268,7 @@ export default async function DashboardPage() {
                 </Link>
               );
             })}
-            {!interviews.length ? <p className="px-5 py-8 text-sm text-[#65736d]">No practice sessions yet.</p> : null}
+            {!interviews.length ? <p className="px-5 py-8 text-sm text-[#65736d]"><T>{"No practice sessions yet."}</T></p> : null}
           </div>
         </section>
       </div>

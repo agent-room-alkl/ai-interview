@@ -1,6 +1,6 @@
 /** Practice access packs + free-trial rules. */
 
-export type PackId = "day" | "week" | "month";
+export type PackId = "week" | "month";
 
 export type AccessPack = {
   id: PackId;
@@ -23,22 +23,11 @@ export const PACK_FEATURE_CORE = [
 ] as const;
 
 export const ACCESS_PACKS: Record<PackId, AccessPack> = {
-  day: {
-    id: "day",
-    name: "1 day",
-    days: 1,
-    amountCents: 300,
-    blurb: "Sprint day — unlimited practice for 24 hours.",
-    features: [
-      ...PACK_FEATURE_CORE,
-      "Stack more days anytime",
-    ],
-  },
   week: {
     id: "week",
     name: "1 week",
     days: 7,
-    amountCents: 900,
+    amountCents: 300,
     blurb: "Most popular — a full week of focused prep.",
     features: [
       ...PACK_FEATURE_CORE,
@@ -50,7 +39,7 @@ export const ACCESS_PACKS: Record<PackId, AccessPack> = {
     id: "month",
     name: "1 month",
     days: 30,
-    amountCents: 1900,
+    amountCents: 900,
     blurb: "Long runway — a full month of unlimited sessions.",
     features: [
       ...PACK_FEATURE_CORE,
@@ -62,12 +51,13 @@ export const ACCESS_PACKS: Record<PackId, AccessPack> = {
 
 export const PACK_IDS = Object.keys(ACCESS_PACKS) as PackId[];
 
-export const TRIAL_DURATION_MINUTES = 10;
+export const TRIAL_HOURS = 24;
+export const TRIAL_WINDOW_MS = TRIAL_HOURS * 60 * 60 * 1000;
 export const PAID_DURATIONS = [10, 20, 30] as const;
 export type SessionDuration = (typeof PAID_DURATIONS)[number];
 
 export function isPackId(value: string): value is PackId {
-  return value === "day" || value === "week" || value === "month";
+  return value === "week" || value === "month";
 }
 
 export function getPack(id: PackId): AccessPack {
@@ -111,11 +101,12 @@ export function hasActiveAccess(
 /**
  * Who may start a session of `durationMinutes`.
  * - Paid access: 10 / 20 / 30
- * - Free trial (once): 10 only, while trialUsed is false
+ * - Free trial: unlimited sessions for 24 hours from first practice
  */
 export function canStartSession(opts: {
   accessUntil: Date | string | null | undefined;
   trialUsed: boolean;
+  trialEndsAt?: Date | string | null;
   durationMinutes: number;
   now?: Date;
 }): { ok: true; via: "paid" | "trial" } | { ok: false; reason: string } {
@@ -126,19 +117,12 @@ export function canStartSession(opts: {
   if (hasActiveAccess(opts.accessUntil, opts.now)) {
     return { ok: true, via: "paid" };
   }
-  if (!opts.trialUsed && duration === TRIAL_DURATION_MINUTES) {
+  if (!opts.trialUsed || hasActiveAccess(opts.trialEndsAt, opts.now)) {
     return { ok: true, via: "trial" };
-  }
-  if (!opts.trialUsed && duration !== TRIAL_DURATION_MINUTES) {
-    return {
-      ok: false,
-      reason:
-        "Your free trial is limited to a 10-minute session. Buy access to unlock 20 and 30 minutes.",
-    };
   }
   return {
     ok: false,
-    reason: "Your free trial is used up. Buy a practice pack to continue.",
+    reason: "Your 24-hour free trial has expired. Buy a practice pack to continue.",
   };
 }
 

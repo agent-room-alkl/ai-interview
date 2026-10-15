@@ -1,3 +1,4 @@
+import { T } from "@/components/LanguageProvider";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
@@ -107,13 +108,13 @@ export default async function Home() {
         offers: {
           "@type": "AggregateOffer",
           lowPrice: "0",
-          highPrice: "19",
+          highPrice: "9",
           priceCurrency: "USD",
           offerCount: "4",
           offers: [
             {
               "@type": "Offer",
-              name: "Free 10-minute trial",
+              name: "Free 24-hour trial",
               price: "0",
               priceCurrency: "USD",
             },
@@ -149,29 +150,21 @@ export default async function Home() {
             <a
               className="hidden transition-opacity hover:opacity-60 sm:inline"
               href="#how-it-works"
-            >
-              How it works
-            </a>
+            ><T>{"How it works"}</T></a>
             <a
               className="hidden transition-opacity hover:opacity-60 sm:inline"
               href="#pricing"
-            >
-              Pricing
-            </a>
+            ><T>{"Pricing"}</T></a>
             <a
               className="hidden transition-opacity hover:opacity-60 md:inline"
               href="#guide"
-            >
-              Guide
-            </a>
+            ><T>{"Guide"}</T></a>
             {userId ? (
               <>
                 <Link
                   className="inline-flex min-h-11 items-center px-1 py-2 transition-opacity hover:opacity-60"
                   href="/dashboard"
-                >
-                  Dashboard
-                </Link>
+                ><T>{"Dashboard"}</T></Link>
                 <span className="flex items-center">
                   <UserButton />
                 </span>
@@ -181,15 +174,11 @@ export default async function Home() {
                 <Link
                   className="inline-flex min-h-11 items-center px-1 py-2 transition-opacity hover:opacity-60"
                   href="/login"
-                >
-                  Log in
-                </Link>
+                ><T>{"Log in"}</T></Link>
                 <Link
                   className="inline-flex min-h-11 items-center rounded-full bg-[#d7f16a] px-3.5 py-2.5 transition-transform hover:-translate-y-0.5 sm:px-4"
                   href="/signup"
-                >
-                  Get started
-                </Link>
+                ><T>{"Get started"}</T></Link>
               </>
             )}
           </div>
@@ -198,33 +187,22 @@ export default async function Home() {
         <div className="relative z-10 grid gap-10 pb-16 pt-12 sm:gap-12 sm:pb-24 sm:pt-20 lg:grid-cols-[1.1fr_0.9fr] lg:items-end lg:pt-28">
           <div>
             <p className="mb-5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#65736d] sm:mb-7 sm:text-xs sm:tracking-[0.2em]">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[#e57b4f]" />{" "}
-              Voice-first interview practice
-            </p>
-            <h1 className="max-w-4xl text-[2.75rem] font-semibold leading-[0.95] tracking-[-0.07em] sm:text-6xl sm:leading-[0.92] sm:tracking-[-0.075em] md:text-8xl">
-              Make your next answer your best one.
-            </h1>
-            <p className="mt-6 max-w-xl text-base leading-7 text-[#52605a] sm:mt-8 sm:text-lg sm:leading-8">
-              A calm, realistic AI interview partner that knows your résumé,
-              asks better questions, and helps you get sharper with every
-              attempt.
-            </p>
+              <span className="h-2 w-2 shrink-0 rounded-full bg-[#e57b4f]" />{" "}<T>{"Voice-first interview practice"}</T></p>
+            <h1 className="max-w-4xl text-[2.75rem] font-semibold leading-[0.95] tracking-[-0.07em] sm:text-6xl sm:leading-[0.92] sm:tracking-[-0.075em] md:text-8xl"><T>{"Make your next answer your best one."}</T></h1>
+            <p className="mt-6 max-w-xl text-base leading-7 text-[#52605a] sm:mt-8 sm:text-lg sm:leading-8"><T>{"A calm, realistic AI interview partner that knows your résumé, asks better questions, and helps you get sharper with every attempt."}</T></p>
             <div className="mt-8 flex flex-col gap-3 sm:mt-10 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
               <Link
                 href={userId ? "/interview/new" : "/signup"}
                 className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#17201e] px-6 py-3.5 text-sm font-semibold text-[#f6f5f0] transition-transform hover:-translate-y-0.5"
-              >
-                Start practicing <span className="ml-3">↗</span>
+              ><T>{"Start practicing"}</T><span className="ml-3">↗</span>
               </Link>
               <a
                 href="#pricing"
                 className="inline-flex min-h-12 items-center justify-center rounded-full border border-[#17201e]/20 px-6 py-3.5 text-sm font-semibold transition-colors hover:bg-white/60"
-              >
-                From $3 · free 10‑min trial
-              </a>
+              ><T>{"From $3/week · free 24-hour trial"}</T></a>
             </div>
             <p className="mt-4 text-xs leading-5 text-[#65736d] sm:text-sm">
-              One free 10-minute session · then $3/day · $9/week · $19/month
+              24 hours free · then $3/week · $9/month
               (one-time, stackable)
             </p>
           </div>
@@ -232,20 +210,18 @@ export default async function Home() {
             <div className="rounded-[1.5rem] border border-[#17201e]/10 bg-[#e3eee7] p-2.5 shadow-[0_24px_70px_-30px_rgba(23,32,30,0.35)] sm:rounded-[2rem] sm:p-3">
               <div className="rounded-[1.25rem] bg-[#17201e] p-5 text-[#f6f5f0] sm:rounded-[1.5rem] sm:p-8">
                 <div className="flex items-center justify-between text-xs text-[#a9bbb2]">
-                  <span>LIVE SESSION</span>
+                  <span><T>{"LIVE SESSION"}</T></span>
                   <span className="flex items-center gap-2">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-[#d7f16a]" />{" "}
                     00:14
                   </span>
                 </div>
                 <div className="mt-10 sm:mt-16">
-                  <p className="text-sm text-[#a9bbb2]">AI Interviewer</p>
-                  <p className="mt-3 text-xl leading-snug tracking-[-0.04em] sm:text-2xl">
-                    “Tell me about a project you’re proud of.”
-                  </p>
+                  <p className="text-sm text-[#a9bbb2]"><T>{"AI Interviewer"}</T></p>
+                  <p className="mt-3 text-xl leading-snug tracking-[-0.04em] sm:text-2xl"><T>{"“Tell me about a project you’re proud of.”"}</T></p>
                 </div>
                 <div className="mt-12 flex items-center justify-between border-t border-white/10 pt-5 sm:mt-20">
-                  <span className="text-xs text-[#a9bbb2]">Listening...</span>
+                  <span className="text-xs text-[#a9bbb2]"><T>{"Listening..."}</T></span>
                   <span className="flex items-center gap-1.5">
                     <i className="h-3 w-1 rounded-full bg-[#d7f16a]" />
                     <i className="h-5 w-1 rounded-full bg-[#d7f16a]" />
@@ -255,9 +231,7 @@ export default async function Home() {
                   </span>
                 </div>
                 <div className="mt-5">
-                  <span className="inline-flex rounded-full bg-[#e57b4f] px-3 py-1.5 text-[11px] font-semibold text-white sm:px-4 sm:py-2 sm:text-xs">
-                    tailored to you
-                  </span>
+                  <span className="inline-flex rounded-full bg-[#e57b4f] px-3 py-1.5 text-[11px] font-semibold text-white sm:px-4 sm:py-2 sm:text-xs"><T>{"tailored to you"}</T></span>
                 </div>
               </div>
             </div>
@@ -277,10 +251,10 @@ export default async function Home() {
                 {feature.number}
               </p>
               <h2 className="mt-8 text-xl font-semibold tracking-[-0.04em]">
-                {feature.title}
+                <T>{feature.title}</T>
               </h2>
               <p className="mt-3 text-sm leading-6 text-[#65736d]">
-                {feature.text}
+                <T>{feature.text}</T>
               </p>
             </article>
           ))}
@@ -290,20 +264,15 @@ export default async function Home() {
           id="guide"
           className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
-            How to use
-          </p>
-          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
-            From signup to sharper answers in four steps.
-          </h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]"><T>{"How to use"}</T></p>
+          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl"><T>{"From signup to sharper answers in four steps."}</T></h2>
           <ol className="mt-8 grid gap-4 sm:grid-cols-2">
             {guideSteps.map((item) => (
               <li
                 key={item.step}
                 className="rounded-2xl border border-[#17201e]/10 bg-white/35 p-6"
               >
-                <p className="text-xs font-semibold text-[#e57b4f]">
-                  Step {item.step}
+                <p className="text-xs font-semibold text-[#e57b4f]"><T>{"Step"}</T>{item.step}
                 </p>
                 <h3 className="mt-4 text-lg font-semibold tracking-[-0.03em]">
                   {item.title}
@@ -320,48 +289,27 @@ export default async function Home() {
           id="pricing"
           className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
-            Pricing
-          </p>
-          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
-            One free 10-minute trial. Then simple one-time packs.
-          </h2>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
-            New accounts get one free 10-minute session. Packs are one-time
-            (not subscriptions) and stack. Click a card to select it —{" "}
-            <strong className="font-semibold text-[#17201e]">1 week / $9</strong>{" "}
-            is best value by default. Buy button sits inside each pack card.
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]"><T>{"Pricing"}</T></p>
+          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl"><T>{"24 hours free. Then simple one-time packs."}</T></h2>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7"><T>{"New accounts get 24 hours of unlimited practice, starting with their first session. Packs are one-time (not subscriptions) and stack. Click a card to select it —"}</T>{" "}
+            <strong className="font-semibold text-[#17201e]"><T>{"1 week / $3"}</T></strong>{" "}<T>{"is best value by default. Buy button sits inside each pack card."}</T></p>
 
           <PricingPackPicker
             signedIn={Boolean(userId)}
             trialHref="/interview/new"
             signupHref="/signup"
           />
-          <p className="mt-4 text-xs leading-5 text-[#65736d]">
-            Prefer the full checkout page?{" "}
-            <Link href="/pricing" className="font-semibold underline underline-offset-4">
-              Open /pricing
-            </Link>
-            . Refunds available within 24 hours of purchase.
-          </p>
+          <p className="mt-4 text-xs leading-5 text-[#65736d]"><T>{"Prefer the full checkout page?"}</T>{" "}
+            <Link href="/pricing" className="font-semibold underline underline-offset-4"><T>{"Open /pricing"}</T></Link><T>{". Refunds available within 24 hours of purchase."}</T></p>
         </section>
 
         <section
           id="languages"
           className="relative z-10 mt-10 border-t border-[#17201e]/10 pt-10 sm:mt-14 sm:pt-14"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]">
-            Multilingual
-          </p>
-          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
-            Interview in the language your résumé speaks.
-          </h2>
-          <p className="mt-4 max-w-xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7">
-            Upload your résumé and we detect the language automatically — then
-            questions, voice recognition, and coaching follow that language so
-            practice feels natural from the first turn.
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#e57b4f]"><T>{"Multilingual"}</T></p>
+          <h2 className="mt-4 max-w-2xl text-3xl font-semibold tracking-[-0.05em] sm:text-4xl"><T>{"Interview in the language your résumé speaks."}</T></h2>
+          <p className="mt-4 max-w-xl text-sm leading-6 text-[#65736d] sm:text-base sm:leading-7"><T>{"Upload your résumé and we detect the language automatically — then questions, voice recognition, and coaching follow that language so practice feels natural from the first turn."}</T></p>
           <ul className="mt-8 flex flex-wrap gap-2 sm:gap-3">
             {languages.map((lang) => (
               <li
@@ -376,20 +324,12 @@ export default async function Home() {
       </section>
       <footer className="border-t border-[#17201e]/10 px-6 py-8 text-sm text-[#65736d] sm:px-10 lg:px-16">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 sm:flex-row">
-          <p>Your next interview starts with one good question.</p>
+          <p><T>{"Your next interview starts with one good question."}</T></p>
           <nav className="flex flex-wrap items-center justify-center gap-4 text-xs font-medium sm:gap-6">
-            <a className="hover:opacity-70" href="#guide">
-              Guide
-            </a>
-            <a className="hover:opacity-70" href="#pricing">
-              Pricing
-            </a>
-            <Link className="hover:opacity-70" href="/terms">
-              Terms
-            </Link>
-            <Link className="hover:opacity-70" href="/privacy">
-              Privacy
-            </Link>
+            <a className="hover:opacity-70" href="#guide"><T>{"Guide"}</T></a>
+            <a className="hover:opacity-70" href="#pricing"><T>{"Pricing"}</T></a>
+            <Link className="hover:opacity-70" href="/terms"><T>{"Terms"}</T></Link>
+            <Link className="hover:opacity-70" href="/privacy"><T>{"Privacy"}</T></Link>
           </nav>
         </div>
       </footer>

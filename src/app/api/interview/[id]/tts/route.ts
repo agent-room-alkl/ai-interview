@@ -1,3 +1,4 @@
+import { hasPracticeAccess } from "@/lib/practice-access";
 // T-06/T-07: POST /api/interview/[id]/tts  { text: string }
 // T-35 (Plan A): stream raw PCM (24 kHz, 16-bit signed LE, mono) straight from
 // OpenAI TTS to the client. The room player feeds these bytes into the Web
@@ -58,6 +59,7 @@ export async function POST(
   if (!interview || interview.userId !== session.user.id) {
     return new Response("not_found", { status: 404 });
   }
+  if (!(await hasPracticeAccess(session.user.id))) return new Response("access_expired", { status: 403 });
   const voice = voiceForLanguage(interview.language);
 
   const upstream = await fetch("https://api.openai.com/v1/audio/speech", {

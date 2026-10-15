@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     }
     if (!packId) {
       return NextResponse.json(
-        { error: "Choose a pack: day, week, or month." },
+        { error: "Choose a pack: week or month." },
         { status: 400 },
       );
     }
@@ -74,7 +74,7 @@ export async function POST(req: Request) {
           days: String(pack.days),
           purchaseId: purchase.id,
         },
-        // Lets buyers enter Stripe Promotion codes (e.g. 1DAY → $1 day intro).
+        // Promotion codes apply to the selected current pack.
         allow_promotion_codes: true,
         success_url: `${site}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${site}/pricing?cancelled=1`,

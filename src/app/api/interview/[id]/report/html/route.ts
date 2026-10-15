@@ -28,6 +28,7 @@ export async function GET(
     candidateName: interview.candidateName,
     targetRole: interview.targetRole ?? "the role",
     mode: interview.mode,
+    language: interview.language,
     date: interview.createdAt.toISOString().slice(0, 10),
   });
 

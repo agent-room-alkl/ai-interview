@@ -1,3 +1,4 @@
+import { hasPracticeAccess } from "@/lib/practice-access";
 // Realtime STT: POST /api/interview/[id]/realtime-token
 // Mints a short-lived ephemeral client secret so the browser can open a WebRTC
 // connection straight to the OpenAI Realtime API for LIVE (word-by-word)
@@ -31,6 +32,7 @@ export async function POST(
   if (!interview || interview.userId !== session.user.id) {
     return new Response("not_found", { status: 404 });
   }
+  if (!(await hasPracticeAccess(session.user.id))) return new Response("access_expired", { status: 403 });
   const language = interview.language?.split("-")[0]?.toLowerCase();
 
   // GA Realtime session config (transcription-only). For WebRTC the audio codec

@@ -27,6 +27,7 @@ export interface ReportContext {
   candidateName: string;
   targetRole: string;
   mode: "practice" | "interview";
+  language?: string;
 }
 
 const DIMENSION_NAMES = [
@@ -100,7 +101,7 @@ export async function scoreInterview(
   const { object } = await generateObject({
     model,
     schema: ReportSchema,
-    system: SYSTEM,
+    system: SYSTEM + `\nWrite all summaries, feedback, strengths, and improvements in ${ctx.language?.startsWith("zh") ? "Simplified Chinese" : "English"}. Keep dimension names as specified.`,
     prompt: `Target role: ${ctx.targetRole}
 Session type: ${ctx.mode}
 Candidate answer count: ${userTurns.length}

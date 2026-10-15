@@ -1,3 +1,4 @@
+import { T } from "@/components/LanguageProvider";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -10,7 +11,7 @@ export default async function NewInterviewPage() {
   if (!session?.user) redirect("/login");
   const profile = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { resumeContext: true, accessUntil: true, trialUsed: true },
+    select: { resumeContext: true, accessUntil: true, trialUsed: true, trialEndsAt: true },
   });
 
   return (
@@ -18,22 +19,16 @@ export default async function NewInterviewPage() {
       <div className="safe-px mx-auto max-w-7xl px-4 py-8 sm:px-10 sm:py-10 lg:px-16">
         <header className="flex items-center justify-between border-b border-[#17201e]/10 pb-4 mb-6">
           <Link href="/dashboard" className="inline-flex"><Logo compact /></Link>
-          <Link href="/dashboard" className="text-sm text-[#65736d] hover:opacity-70">
-            ← Dashboard
-          </Link>
+          <Link href="/dashboard" className="text-sm text-[#65736d] hover:opacity-70"><T>{"← Dashboard"}</T></Link>
         </header>
-        <h1 className="mt-4 text-4xl font-semibold tracking-[-0.07em] sm:text-5xl">
-          Create interview
-        </h1>
-        <p className="mt-4 max-w-2xl text-[#65736d]">
-          Add your name and résumé, pick Practice or Interview, then choose a
-          target role.
-        </p>
+        <h1 className="mt-4 text-4xl font-semibold tracking-[-0.07em] sm:text-5xl"><T>{"Create interview"}</T></h1>
+        <p className="mt-4 max-w-2xl text-[#65736d]"><T>{"Add your name and résumé, pick Practice or Interview, then choose a target role."}</T></p>
         <div className="w-full">
             <CreateInterviewForm
               initialResumeText={profile?.resumeContext ?? ""}
               accessUntil={profile?.accessUntil?.toISOString() ?? null}
               trialUsed={profile?.trialUsed ?? false}
+              trialEndsAt={profile?.trialEndsAt?.toISOString() ?? null}
               initialCandidateName={session.user.name ?? ""}
             />
         </div>

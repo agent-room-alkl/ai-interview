@@ -11,6 +11,7 @@ type ReportableInterview = {
   candidateName: string;
   targetRole: string | null;
   mode: string;
+  language?: string;
   turns: { speaker: string; text: string }[];
 };
 
@@ -93,6 +94,7 @@ export async function getOrCreateInterviewReport(
       })),
       {
         candidateName: interview.candidateName,
+        language: interview.language,
         targetRole: interview.targetRole ?? "the role",
         mode: interview.mode as "practice" | "interview",
       },

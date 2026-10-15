@@ -12,11 +12,31 @@ async function load(relativePath) {
 
 const billing = await load("../src/lib/billing.ts");
 const { PcmBuffer } = await load("../src/lib/pcm.ts");
-const { buildPitchCoachingInput } = await load("../src/lib/pitch-coaching.ts");
+const { buildPitchCoachingInput, parsePitchLanguage, PITCH_LANGUAGES } = await load("../src/lib/pitch-coaching.ts");
 const { standardizeResumeText } = await load("../src/lib/resume-parse.ts");
 const now = new Date("2026-10-15T00:00:00Z");
 const expired = new Date(now.getTime() - 1);
 const active = new Date(now.getTime() + 1);
+
+test("pitch language defaults to résumé-based auto mode, with nine explicit overrides", () => {
+  assert.equal(parsePitchLanguage(null), "auto");
+  assert.equal(parsePitchLanguage("auto"), "auto");
+  for (const language of Object.keys(PITCH_LANGUAGES)) {
+    assert.equal(parsePitchLanguage(language), language);
+    const result = buildPitchCoachingInput({ transcript: "My pitch", resumeBackground: "中文简历", language, targetSeconds: 30, recordedSeconds: 0 });
+    assert.match(result.system, new RegExp(`Reply entirely in ${PITCH_LANGUAGES[language]}`));
+    assert.match(result.system, /explicit user choice overrides/);
+  }
+  for (const invalid of ["unsupported", "__proto__", "toString", 42]) assert.equal(parsePitchLanguage(invalid), null);
+});
+
+test("automatic coaching uses résumé language with a spoken-language fallback, independently of interface language", () => {
+  const result = buildPitchCoachingInput({ transcript: "My pitch", resumeBackground: "中文简历", language: "auto", targetSeconds: 60, recordedSeconds: 30 });
+  assert.match(result.system, /predominant language of the résumé/);
+  assert.match(result.system, /résumé is absent or its language is ambiguous/);
+  assert.match(result.system, /use the language of the spoken transcript/);
+  assert.doesNotMatch(result.system, /Reply entirely in English/);
+});
 
 test("pitch coaching receives the actual speech and sanitized résumé as separate inputs", () => {
   const transcript = "I build data platforms and want a lead role.";

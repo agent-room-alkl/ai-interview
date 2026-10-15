@@ -6,7 +6,7 @@ import { withPracticeAccess } from "@/lib/practice-access";
 import { model } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 import { standardizeResumeText } from "@/lib/resume-parse";
-import { buildPitchCoachingInput } from "@/lib/pitch-coaching";
+import { buildPitchCoachingInput, parsePitchLanguage } from "@/lib/pitch-coaching";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,7 +16,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return new Response("unauthorized", { status: 401 });
   try {
     const form = await req.formData();
-    const language = form.get("language") === "zh" ? "zh" : "en";
+    const language = parsePitchLanguage(form.get("language"));
+    if (!language) return new Response("invalid_language", { status: 400 });
     const audio = form.get("audio");
     if (audio instanceof File) {
       if (!audio.size || audio.size > 5 * 1024 * 1024) return new Response("invalid_audio_size", { status: 400 });
@@ -27,7 +28,8 @@ export async function POST(req: NextRequest) {
       const upstream = new FormData();
       upstream.append("file", audio, audio.type.includes("mp4") ? "pitch.mp4" : "pitch.webm");
       upstream.append("model", process.env.STT_MODEL || "gpt-4o-transcribe");
-      upstream.append("language", language);
+      // Automatic transcription follows the actual spoken language; don't force English.
+      if (language !== "auto") upstream.append("language", language);
       const result = await fetch("https://api.openai.com/v1/audio/transcriptions", {
         method: "POST", headers: { Authorization: `Bearer ${key}` }, body: upstream,
         signal: AbortSignal.timeout(45000),
@@ -62,6 +64,7 @@ export async function POST(req: NextRequest) {
     const { object } = await generateObject({
       model,
       schema: z.object({
+        language: z.enum(["en", "zh", "es", "fr", "de", "ja", "ko", "pt", "hi"]),
         score: z.number().min(0).max(100),
         feedback: z.string(),
         improvedPitch: z.string(),

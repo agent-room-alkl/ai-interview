@@ -197,3 +197,5 @@ Issues and pull requests are welcome. If AI Interview helped you prepare, a ⭐ 
 - Free access starts at the first practice and lasts exactly 24 hours (unlimited 10/20/30-minute sessions). Paid access is $3 for 7 days or $9 for 30 days. No day pack or $19 tier is sold. Existing purchases retain their recorded duration and refund behavior.
 - Apply `prisma migrate deploy` before starting the updated app: the new nullable `User.trialEndsAt` records trial expiry. Previously consumed trials stay consumed; this migration does not reset existing users or alter paid access.
 - Run `npm test`, `npm run lint`, and `npx tsc --noEmit`. A full end-to-end voice/payment check requires configured Clerk, PostgreSQL, OpenAI and Stripe test credentials. The build script applies migrations, so use `npx next build` when checking compilation without touching a database.
+
+Elevator pitch feedback defaults to the predominant résumé language (or the spoken language without a résumé). Nine manual language overrides are available independently of the English/Chinese interface. Automatic transcription follows the actual audio language.

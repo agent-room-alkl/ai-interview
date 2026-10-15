@@ -3,14 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLanguage } from "@/components/LanguageProvider";
+import { PITCH_LANGUAGES, type PitchLanguage, type PitchLanguageChoice } from "@/lib/pitch-coaching";
 
-type Feedback = { score: number; feedback: string; improvedPitch: string; templateOutline: string[]; personalizationNotes: string; resumeUsed: boolean };
+type Feedback = { language: PitchLanguage; score: number; feedback: string; improvedPitch: string; templateOutline: string[]; personalizationNotes: string; resumeUsed: boolean };
 
 export default function PitchPractice({ initialResumeText }: { initialResumeText: string }) {
   const { language: uiLanguage } = useLanguage();
   const zh = uiLanguage === "zh";
   const l = (en: string, cn: string) => zh ? cn : en;
-  const [language, setLanguage] = useState(uiLanguage);
+  const [language, setLanguage] = useState<PitchLanguageChoice>("auto");
   const [seconds, setSeconds] = useState(30);
   const [remaining, setRemaining] = useState(30);
   const [recording, setRecording] = useState(false);
@@ -119,8 +120,9 @@ export default function PitchPractice({ initialResumeText }: { initialResumeText
     <p>{l("Introduce yourself, show your value, then close with your goal. Feedback combines your words with your résumé background to recommend a personalized pitch template.", "你是谁 → 你能带来的价值 → 一个具体例子 → 你的目标。系统会结合本次表达和简历背景，给出适合你的推荐模板，可对照反复练习。")}</p>
     <div className="flex flex-wrap gap-6">
       <label>{l("Target length", "目标时长")} <select disabled={recording || busy} value={seconds} onChange={e => { const value = Number(e.target.value); setSeconds(value); setRemaining(value); setFeedback(null); setReference(null); }}><option value={30}>30 {l("seconds", "秒")}</option><option value={60}>60 {l("seconds", "秒")}</option></select></label>
-      <label>{l("Speech & feedback language", "演讲及反馈语言")} <select value={language} disabled={recording || busy} onChange={e => { setLanguage(e.target.value); setFeedback(null); setReference(null); }}><option value="en">English</option><option value="zh">中文</option></select></label>
+      <label>{l("Speech & feedback language", "演讲及反馈语言")} <select value={language} disabled={recording || busy} onChange={e => { setLanguage(e.target.value as PitchLanguageChoice); setFeedback(null); setReference(null); }}><option value="auto">{l("Auto · follow résumé language", "自动 · 跟随简历语言")}</option>{Object.entries(PITCH_LANGUAGES).map(([code, name]) => <option key={code} value={code}>{code === "zh" ? "中文" : name}</option>)}</select></label>
     </div>
+    <p className="text-sm text-[#52605a]">{language === "auto" ? l("Feedback and the recommended template follow the predominant language of your résumé. Without a résumé, they follow your speech. You can override this above; the interface language stays separate.", "反馈和推荐模板默认跟随简历的主要语言；没有简历时跟随你说的语言。也可手动指定，界面语言独立设置。") : l("Your selected language applies to transcription, feedback and the recommended template.", "已按你的手动选择设置语音识别、反馈和推荐模板语言。")}</p>
     <details className="rounded-2xl border border-[#17201e]/15 bg-[#e3eee7] p-4" open={!initialResumeText}>
       <summary className="cursor-pointer font-medium">{resumeText.trim() ? l("Résumé background included · review or edit", "已加入简历背景 · 可查看和修改") : l("Add résumé background for a personalized template", "添加简历背景，获取更贴合经历的模板")}</summary>
       <p className="mt-3 text-sm text-[#52605a]">{initialResumeText ? l("Your saved résumé is loaded. Only this practice uses edits here; your saved résumé stays unchanged.", "已载入你保存的简历。在此修改只用于本次练习，不会覆盖已保存的简历。") : l("Paste your role, experience and achievements. You can also continue without a résumé; the template will use only what you say.", "可粘贴岗位、工作经历和成果；没有简历也可练习，模板将仅依据你本次表达生成。")}</p>
@@ -142,6 +144,7 @@ export default function PitchPractice({ initialResumeText }: { initialResumeText
     </section>}
     {reference && <section className="space-y-4 rounded-2xl border bg-emerald-50 p-6" aria-live="polite">
       <h2 className="text-xl font-semibold">{l("Your recommended elevator pitch template", "为你推荐的电梯演讲模板")}</h2>
+      <p className="text-xs font-medium text-[#52605a]">{l("Template language", "模板语言")} · {PITCH_LANGUAGES[reference.language]}</p>
       <p className="text-sm text-[#52605a]">{reference.resumeUsed ? l("Based on your pitch and résumé background", "综合本次表达与简历背景生成") : l("Based on your pitch only — no résumé background provided", "仅依据本次表达生成，尚未提供简历背景")}</p>
       <ol className="list-inside list-decimal space-y-1 text-sm">{reference.templateOutline.map((section, index) => <li key={index}>{section}</li>)}</ol>
       <p className="whitespace-pre-wrap rounded-xl bg-white p-4 leading-7">{reference.improvedPitch}</p>

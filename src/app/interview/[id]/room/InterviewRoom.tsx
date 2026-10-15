@@ -1,5 +1,5 @@
 "use client";
-import { T, useLanguage } from "@/components/LanguageProvider";
+import { T, useLanguage, LanguageSwitcher } from "@/components/LanguageProvider";
 
 // Voice: always-on mic → getUserMedia (echo cancellation) → energy-VAD
 // segmenting → MediaRecorder → server STT (OpenAI), plus streaming TTS and mute.
@@ -1564,7 +1564,7 @@ export default function InterviewRoom({
     typeof RTCPeerConnection !== "undefined";
 
   return (
-    <div className="safe-pt safe-px mx-auto flex h-[calc(100dvh-2.5rem)] w-full max-w-6xl flex-col overflow-hidden px-3 sm:px-6 lg:max-w-7xl lg:px-10">
+    <div className="safe-pt safe-px mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-hidden px-3 sm:px-6 lg:max-w-7xl lg:px-10">
       <header className="flex shrink-0 flex-col gap-2 border-b border-gray-200 pb-2 pt-1 sm:flex-row sm:items-end sm:justify-between sm:pb-3">
         <div className="min-w-0">
           <Link href="/dashboard" className="mb-1 inline-flex"><Logo compact showTagline /></Link>
@@ -1581,6 +1581,7 @@ export default function InterviewRoom({
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <LanguageSwitcher />
           {timeLeft !== null && (
             <div
               aria-label={`Time remaining ${Math.floor(timeLeft / 60)} minutes ${timeLeft % 60} seconds`}

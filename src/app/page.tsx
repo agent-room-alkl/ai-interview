@@ -1,4 +1,4 @@
-import { T } from "@/components/LanguageProvider";
+import { T, LanguageSwitcher } from "@/components/LanguageProvider";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
@@ -159,6 +159,7 @@ export default async function Home() {
               className="hidden transition-opacity hover:opacity-60 md:inline"
               href="#guide"
             ><T>{"Guide"}</T></a>
+            <LanguageSwitcher />
             {userId ? (
               <>
                 <Link

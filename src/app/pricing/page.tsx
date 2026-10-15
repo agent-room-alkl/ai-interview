@@ -1,4 +1,4 @@
-import { T } from "@/components/LanguageProvider";
+import { T, LanguageSwitcher } from "@/components/LanguageProvider";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import {
@@ -44,6 +44,7 @@ export default async function PricingPage({
             <Logo />
           </Link>
           <div className="flex items-center gap-3 text-sm font-semibold">
+            <LanguageSwitcher />
             {session?.user ? (
               <Link href="/dashboard" className="underline underline-offset-4"><T>{"Dashboard"}</T></Link>
             ) : (

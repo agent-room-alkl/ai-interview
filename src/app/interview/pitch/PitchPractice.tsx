@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useLanguage } from "@/components/LanguageProvider";
+import { useLanguage, LanguageSwitcher } from "@/components/LanguageProvider";
 import { PITCH_LANGUAGES, type PitchLanguage, type PitchLanguageChoice } from "@/lib/pitch-coaching";
 
 type Feedback = { language: PitchLanguage; score: number; feedback: string; improvedPitch: string; templateOutline: string[]; personalizationNotes: string; resumeUsed: boolean };
@@ -115,7 +115,7 @@ export default function PitchPractice({ initialResumeText }: { initialResumeText
   }
 
   return <main className="mx-auto max-w-3xl space-y-6 px-5 py-10 text-[#17201e]">
-    <Link href="/dashboard" className="underline">{l("← Dashboard", "← 练习中心")}</Link>
+    <div className="flex items-center justify-between gap-3"><Link href="/dashboard" className="underline">{l("← Dashboard", "← 练习中心")}</Link><LanguageSwitcher /></div>
     <h1 className="text-3xl font-semibold">{l("Your elevator pitch", "30–60 秒电梯演讲")}</h1>
     <p>{l("Introduce yourself, show your value, then close with your goal. Feedback combines your words with your résumé background to recommend a personalized pitch template.", "你是谁 → 你能带来的价值 → 一个具体例子 → 你的目标。系统会结合本次表达和简历背景，给出适合你的推荐模板，可对照反复练习。")}</p>
     <div className="flex flex-wrap gap-6">

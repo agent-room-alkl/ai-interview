@@ -1,5 +1,5 @@
 "use client";
-import { T } from "@/components/LanguageProvider";
+import { T, LanguageSwitcher } from "@/components/LanguageProvider";
 
 // Role selection UI. Fetches AI role suggestions with staged loading + retry.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -161,7 +161,7 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
     <div className="safe-px mx-auto max-w-2xl px-4 py-6 sm:p-6">
       <header className="flex items-center justify-between border-b border-[#17201e]/10 pb-4 mb-6">
         <Link href="/dashboard" className="inline-flex"><Logo compact /></Link>
-        <Link href="/dashboard" className="text-sm text-[#65736d] hover:opacity-70"><T>{"← Dashboard"}</T></Link>
+        <div className="flex items-center gap-3"><LanguageSwitcher /><Link href="/dashboard" className="text-sm text-[#65736d] hover:opacity-70"><T>{"← Dashboard"}</T></Link></div>
       </header>
       <h1 className="text-xl font-semibold leading-snug sm:text-2xl"><T>{"Pick the role(s) you want to interview for"}</T></h1>
       <p className="mt-1 text-sm text-gray-500"><T>{"We analyzed your résumé and suggested the best-fit roles. Select one or more — the interview will cover all of them."}</T></p>

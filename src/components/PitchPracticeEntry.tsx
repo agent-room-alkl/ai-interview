@@ -12,7 +12,7 @@ export function PitchPracticeEntry() {
           <T>{"Elevator speech practice"}</T>
         </h2>
         <p className="mt-2 max-w-xl text-sm leading-6 text-[#52605a]">
-          <T>{"Practice a short self-introduction. Record, replay, and improve with feedback — no résumé or role selection needed."}</T>
+          <T>{"Practice a short self-introduction and get a recommended template based on your words and résumé background."}</T>
         </p>
       </div>
       <Link

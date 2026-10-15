@@ -9,8 +9,7 @@ export function LanguageProvider({ children, initialLanguage }: { children: Reac
   const [language, setLanguage] = useState(initialLanguage);
   const t = (text: string) => language === "zh" ? translations[text] ?? text : text;
   return <LanguageContext.Provider value={{ language, t }}>
-    <div className="flex h-10 items-center justify-end gap-3 bg-[#f6f5f0] px-4 py-1 text-xs">
-      <a href="/interview/pitch" className="underline">{t("Elevator pitch · 30–60 seconds")}</a>
+    <div className="flex h-10 items-center justify-end gap-3 bg-[#f6f5f0] px-4 py-1 text-xs text-[#17201e]">
       <label>{t("Interface language")} <select aria-label="Interface language" value={language} onChange={event => {
         const value = event.target.value;
         setLanguage(value);

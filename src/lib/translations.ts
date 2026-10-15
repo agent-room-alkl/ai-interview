@@ -1,4 +1,8 @@
 export const translations: Record<string, string> = {
+  "Quick practice · 30 or 60 seconds": "快速练习 · 30 或 60 秒",
+  "Elevator speech practice": "电梯演讲练习",
+  "Practice a short self-introduction. Record, replay, and improve with feedback — no résumé or role selection needed.": "练习简短的自我介绍，录音回听、获取反馈并反复提升，无需上传简历或选择岗位。",
+  "Start elevator speech →": "开始电梯演讲练习 →",
   "Elevator pitch · 30–60 seconds": "电梯演讲 · 30–60 秒",
   "Interface language": "界面语言",
   "Dashboard": "练习中心", "← Dashboard": "← 练习中心",

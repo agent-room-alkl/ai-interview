@@ -1,5 +1,6 @@
 import { T } from "@/components/LanguageProvider";
 import Link from "next/link";
+import { PitchPracticeEntry } from "@/components/PitchPracticeEntry";
 import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -107,6 +108,7 @@ export default async function DashboardPage() {
           <UserButton />
         </header>
 
+        <PitchPracticeEntry />
         <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
             ["Practice sessions", String(interviews.length), "Started"],

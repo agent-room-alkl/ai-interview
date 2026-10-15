@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { CreateInterviewForm } from "@/app/interview/new/CreateInterviewForm";
 import { Logo } from "@/components/Logo";
+import { PitchPracticeEntry } from "@/components/PitchPracticeEntry";
 
 export default async function NewInterviewPage() {
   const session = await auth();
@@ -23,6 +24,7 @@ export default async function NewInterviewPage() {
         </header>
         <h1 className="mt-4 text-4xl font-semibold tracking-[-0.07em] sm:text-5xl"><T>{"Create interview"}</T></h1>
         <p className="mt-4 max-w-2xl text-[#65736d]"><T>{"Add your name and résumé, pick Practice or Interview, then choose a target role."}</T></p>
+        <PitchPracticeEntry />
         <div className="w-full">
             <CreateInterviewForm
               initialResumeText={profile?.resumeContext ?? ""}

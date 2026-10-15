@@ -76,6 +76,7 @@ export function standardizeResumeText(input: string): string {
   // Collapse repeated lines and excessive blank structure while preserving
   // section headings and useful bullet points for the user to review.
   const unique = lines.filter((line, index) => lines.indexOf(line) === index);
+  if (unique.length === 0) return "";
   const sections: string[] = [];
   let activeSection = "Personal profile";
   sections.push(SECTION_FORMATS[activeSection]);

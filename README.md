@@ -192,7 +192,7 @@ Issues and pull requests are welcome. If AI Interview helped you prepare, a ⭐ 
 ## October 2026 practice updates
 
 - Switch the interface between English and Chinese in the top bar. Interview language is selected independently on the role screen; generated reports follow that language.
-- `/interview/pitch`: résumé-free 30/60-second elevator pitch rehearsal, local audio replay, editable transcription, coaching, and repeat attempts. Quick practice is not saved to interview history.
+- `/interview/pitch`: 30/60-second elevator pitch rehearsal, local audio replay, editable transcription, and personalized templates based on the spoken pitch plus saved or edited résumé background. Résumé context is optional, and the template stays visible during repeat attempts. Quick practice is not saved to interview history.
 - Voice answers are reviewed before submission by default. Automatic submission after a pause is optional. Passed answers stay available until you choose the next question.
 - Free access starts at the first practice and lasts exactly 24 hours (unlimited 10/20/30-minute sessions). Paid access is $3 for 7 days or $9 for 30 days. No day pack or $19 tier is sold. Existing purchases retain their recorded duration and refund behavior.
 - Apply `prisma migrate deploy` before starting the updated app: the new nullable `User.trialEndsAt` records trial expiry. Previously consumed trials stay consumed; this migration does not reset existing users or alter paid access.

@@ -1,4 +1,4 @@
-import { T } from "@/components/LanguageProvider";
+import { T, LanguageSwitcher } from "@/components/LanguageProvider";
 import Link from "next/link";
 import { PitchPracticeEntry } from "@/components/PitchPracticeEntry";
 import { UserButton } from "@clerk/nextjs";
@@ -105,7 +105,7 @@ export default async function DashboardPage() {
             </h1>
             <p className="mt-3 max-w-xl text-sm leading-6 text-[#65736d]"><T>{"See how your interview practice is building over time."}</T></p>
           </div>
-          <UserButton />
+          <div className="flex shrink-0 items-center gap-3"><LanguageSwitcher /><UserButton /></div>
         </header>
 
         <PitchPracticeEntry />

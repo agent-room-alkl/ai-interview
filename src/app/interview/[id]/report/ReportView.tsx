@@ -1,5 +1,5 @@
 "use client";
-import { T } from "@/components/LanguageProvider";
+import { T, LanguageSwitcher } from "@/components/LanguageProvider";
 
 // T-09: Scorecard UI + downloads (HTML file + print-to-PDF).
 import Link from "next/link";
@@ -80,7 +80,7 @@ export default function ReportView({
     <div className="safe-px mx-auto max-w-3xl px-4 py-6 sm:p-6 print:p-0">
       <div className="mb-5 flex items-center justify-between print:hidden">
         <Link href="/" className="inline-flex"><Logo compact /></Link>
-        <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-900"><T>{"Back to dashboard"}</T></Link>
+        <div className="flex items-center gap-3"><LanguageSwitcher /><Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-900"><T>{"Back to dashboard"}</T></Link></div>
       </div>
       <div className="flex flex-col gap-4 border-b-2 border-gray-900 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">

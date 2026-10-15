@@ -1,4 +1,6 @@
 "use client";
+import { T } from "@/components/LanguageProvider";
+
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -21,11 +23,11 @@ export default function PausedInterview({ interviewId, remainingSeconds }: { int
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl items-center justify-center px-6 py-12">
       <section className="w-full rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Interview paused</p>
-        <h1 className="mt-3 text-2xl font-semibold text-gray-900">Ready to continue?</h1>
-        <p className="mt-3 text-sm text-gray-600">Your interview is saved. {minutes}:{seconds} remains when you resume.</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500"><T>{"Interview paused"}</T></p>
+        <h1 className="mt-3 text-2xl font-semibold text-gray-900"><T>{"Ready to continue?"}</T></h1>
+        <p className="mt-3 text-sm text-gray-600"><T>{"Your interview is saved."}</T>{minutes}:{seconds}<T>{"remains when you resume."}</T></p>
         <div className="mt-6 flex justify-center gap-3">
-          <button type="button" onClick={() => router.push("/dashboard")} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800">Back to dashboard</button>
+          <button type="button" onClick={() => router.push("/dashboard")} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800"><T>{"Back to dashboard"}</T></button>
           <button type="button" disabled={busy} onClick={resume} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">{busy ? "Resuming…" : "Resume interview"}</button>
         </div>
       </section>

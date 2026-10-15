@@ -9,6 +9,8 @@ import {
   getSiteUrl,
 } from "@/lib/site";
 import { Analytics } from "@/components/Analytics";
+import { LanguageProvider } from "@/components/LanguageProvider";
+import { cookies } from "next/headers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -75,19 +77,20 @@ export const viewport: Viewport = {
   themeColor: "#f6f5f0",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const language = (await cookies()).get("ui-language")?.value === "zh" ? "zh" : "en";
   return (
     <ClerkProvider signInUrl="/login" signUpUrl="/signup">
-      <html lang="en">
+      <html lang={language}>
         <body
           className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
         >
           <Analytics />
-          {children}
+          <LanguageProvider initialLanguage={language}>{children}</LanguageProvider>
         </body>
       </html>
     </ClerkProvider>

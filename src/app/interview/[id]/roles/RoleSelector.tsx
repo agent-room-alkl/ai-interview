@@ -1,4 +1,6 @@
 "use client";
+import { T } from "@/components/LanguageProvider";
+
 // Role selection UI. Fetches AI role suggestions with staged loading + retry.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -129,6 +131,7 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
   async function start() {
     if (chosenRoles.length === 0) return;
     setSaving(true);
+    try {
     const res = await fetch(`/api/interview/${interviewId}/target-role`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -150,28 +153,23 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
       setSaving(false);
       setError("Could not save role.");
     }
+    } catch { setError("Could not save role. Check your connection and retry."); }
+    finally { setSaving(false); }
   }
 
   return (
     <div className="safe-px mx-auto max-w-2xl px-4 py-6 sm:p-6">
       <header className="flex items-center justify-between border-b border-[#17201e]/10 pb-4 mb-6">
         <Link href="/dashboard" className="inline-flex"><Logo compact /></Link>
-        <Link href="/dashboard" className="text-sm text-[#65736d] hover:opacity-70">
-          ← Dashboard
-        </Link>
+        <Link href="/dashboard" className="text-sm text-[#65736d] hover:opacity-70"><T>{"← Dashboard"}</T></Link>
       </header>
-      <h1 className="text-xl font-semibold leading-snug sm:text-2xl">
-        Pick the role(s) you want to interview for
-      </h1>
-      <p className="mt-1 text-sm text-gray-500">
-        We analyzed your résumé and suggested the best-fit roles. Select one or
-        more — the interview will cover all of them.
-      </p>
+      <h1 className="text-xl font-semibold leading-snug sm:text-2xl"><T>{"Pick the role(s) you want to interview for"}</T></h1>
+      <p className="mt-1 text-sm text-gray-500"><T>{"We analyzed your résumé and suggested the best-fit roles. Select one or more — the interview will cover all of them."}</T></p>
 
       {(loading || error) && (
         <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-5">
           <p className="text-sm font-medium text-gray-800">
-            {loading ? "Analyzing your résumé…" : "Analysis interrupted"}
+            {loading ? <T>{"Analyzing your résumé…"}</T> : <T>{"Analysis interrupted"}</T>}
           </p>
           <ol className="mt-4 space-y-3">
             {ANALYSIS_STAGES.map((stage, i) => {
@@ -212,7 +210,7 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
                           : "text-gray-400"
                     }
                   >
-                    {stage.label}
+                    <T>{stage.label}</T>
                     {active ? (
                       <span className="ml-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
                     ) : null}
@@ -224,15 +222,13 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
           {error ? (
             <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
               <p className="text-sm text-red-700" role="alert">
-                {error}
+                <T>{error}</T>
               </p>
               <button
                 type="button"
                 onClick={() => setRetryKey((k) => k + 1)}
                 className="min-h-11 shrink-0 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white"
-              >
-                Retry analysis
-              </button>
+              ><T>{"Retry analysis"}</T></button>
             </div>
           ) : null}
         </div>
@@ -268,8 +264,7 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
                     <span className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                       <span className="font-medium leading-snug">{r.title}</span>
                       <span className="shrink-0 text-xs text-gray-400">
-                        {r.seniority} · {r.matchScore}% fit
-                      </span>
+                        {r.seniority} · {r.matchScore}<T>{"% fit"}</T></span>
                     </span>
                     <span className="mt-1 block text-sm text-gray-500">
                       {r.rationale}
@@ -282,15 +277,13 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
         </ul>
       ) : null}
 
-      {!loading && !error ? (
+      {!loading ? (
         <div className="mt-6">
-          <label className="text-sm font-medium" htmlFor="interview-language">
-            Interview language
-          </label>
+          <label className="text-sm font-medium" htmlFor="interview-language"><T>{"Interview language"}</T></label>
           <p className="mt-0.5 text-xs text-gray-500">
             {languageDetected
-              ? "Detected from your résumé — change it if you’d prefer another language."
-              : "Choose the language your interview will be conducted in."}
+              ? <T>{"Detected from your résumé — change it if you’d prefer another language."}</T>
+              : <T>{"Choose the language your interview will be conducted in."}</T>}
           </p>
           <select
             id="interview-language"
@@ -300,7 +293,7 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
           >
             {LANGUAGE_OPTIONS.map((o) => (
               <option key={o.code} value={o.code}>
-                {o.label}
+                <T>{o.label}</T>
               </option>
             ))}
           </select>
@@ -308,13 +301,8 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
           <label
             className="mt-5 block text-sm font-medium"
             htmlFor="expression-level"
-          >
-            Expression level
-          </label>
-          <p className="mt-0.5 text-xs text-gray-500">
-            How elaborate the AI talks — not the role difficulty. You can change
-            it during the interview too.
-          </p>
+          ><T>{"Expression level"}</T></label>
+          <p className="mt-0.5 text-xs text-gray-500"><T>{"How elaborate the AI talks — not the role difficulty. You can change it during the interview too."}</T></p>
           <select
             id="expression-level"
             value={expressionLevel}
@@ -323,7 +311,7 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
           >
             {EXPRESSION_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label}
+                <T>{o.label}</T>
               </option>
             ))}
           </select>
@@ -331,21 +319,18 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
       ) : null}
 
       <div className="mt-6">
-        <label className="text-sm font-medium">Add a custom role</label>
+        <label className="text-sm font-medium"><T>{"Add a custom role"}</T></label>
         <input
           value={custom}
           onChange={(e) => setCustom(e.target.value)}
           placeholder="e.g. Staff Machine Learning Engineer"
           className="mt-1 min-h-11 w-full rounded-xl border border-gray-300 px-3 py-2.5 text-base sm:text-sm"
         />
-        <p className="mt-1 text-xs text-gray-400">
-          Added alongside any roles you selected above.
-        </p>
+        <p className="mt-1 text-xs text-gray-400"><T>{"Added alongside any roles you selected above."}</T></p>
       </div>
 
       {chosenRoles.length > 0 ? (
-        <p className="mt-6 text-sm text-gray-600">
-          Interviewing for:{" "}
+        <p className="mt-6 text-sm text-gray-600"><T>{"Interviewing for:"}</T>{" "}
           <span className="font-medium text-gray-900">
             {chosenRoles.join(", ")}
           </span>
@@ -359,10 +344,10 @@ export default function RoleSelector({ interviewId }: { interviewId: string }) {
         className="mt-4 min-h-12 w-full rounded-xl bg-indigo-600 py-3 font-medium text-white disabled:opacity-40"
       >
         {saving
-          ? "Starting…"
+          ? <T>{"Starting…"}</T>
           : chosenRoles.length > 1
             ? `Start interview (${chosenRoles.length} roles)`
-            : "Start interview"}
+            : <T>{"Start interview"}</T>}
       </button>
     </div>
   );

@@ -1,3 +1,4 @@
+import { T } from "@/components/LanguageProvider";
 import Link from "next/link";
 import { SignIn } from "@clerk/nextjs";
 import { Logo } from "@/components/Logo";
@@ -7,15 +8,9 @@ export default function LoginPage() {
     <main className="min-h-dvh bg-[#f6f5f0] px-4 py-8 text-[#17201e] sm:px-6">
       <Link href="/" className="inline-flex min-h-11 items-center"><Logo compact /></Link>
       <div className="mx-auto mt-12 flex max-w-md flex-col items-center sm:mt-20">
-        <p className="self-start text-xs font-semibold uppercase tracking-[0.2em] text-[#e57b4f]">
-          Welcome back
-        </p>
-        <h1 className="mt-4 self-start text-4xl font-semibold tracking-[-0.07em] sm:text-5xl">
-          Log in.
-        </h1>
-        <p className="mt-4 self-start text-[#65736d]">
-          Pick up where your interview practice left off.
-        </p>
+        <p className="self-start text-xs font-semibold uppercase tracking-[0.2em] text-[#e57b4f]"><T>{"Welcome back"}</T></p>
+        <h1 className="mt-4 self-start text-4xl font-semibold tracking-[-0.07em] sm:text-5xl"><T>{"Log in."}</T></h1>
+        <p className="mt-4 self-start text-[#65736d]"><T>{"Pick up where your interview practice left off."}</T></p>
         <div className="mt-8 w-full sm:mt-10">
           <SignIn
             routing="path"

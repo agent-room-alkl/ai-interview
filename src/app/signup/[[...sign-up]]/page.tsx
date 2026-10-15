@@ -1,3 +1,4 @@
+import { T } from "@/components/LanguageProvider";
 import Link from "next/link";
 import { SignUp } from "@clerk/nextjs";
 import { Logo } from "@/components/Logo";
@@ -9,15 +10,9 @@ export default function SignupPage() {
       <SignupAnalytics />
       <Link href="/" className="inline-flex min-h-11 items-center"><Logo compact /></Link>
       <div className="mx-auto mt-12 flex max-w-md flex-col items-center sm:mt-20">
-        <p className="self-start text-xs font-semibold uppercase tracking-[0.2em] text-[#e57b4f]">
-          Start your practice
-        </p>
-        <h1 className="mt-4 self-start text-4xl font-semibold tracking-[-0.07em] sm:text-5xl">
-          Create an account.
-        </h1>
-        <p className="mt-4 self-start text-[#65736d]">
-          Build a private practice space for your next interview.
-        </p>
+        <p className="self-start text-xs font-semibold uppercase tracking-[0.2em] text-[#e57b4f]"><T>{"Start your practice"}</T></p>
+        <h1 className="mt-4 self-start text-4xl font-semibold tracking-[-0.07em] sm:text-5xl"><T>{"Create an account."}</T></h1>
+        <p className="mt-4 self-start text-[#65736d]"><T>{"Build a private practice space for your next interview."}</T></p>
         <div className="mt-8 w-full sm:mt-10">
           <SignUp
             routing="path"

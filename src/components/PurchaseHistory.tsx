@@ -1,4 +1,6 @@
 "use client";
+import { T, useLanguage } from "@/components/LanguageProvider";
+
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -38,11 +40,12 @@ function statusLabel(status: string): string {
 
 export function PurchaseHistory({ purchases }: { purchases: PurchaseRow[] }) {
   const router = useRouter();
+  const { t } = useLanguage();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function requestRefund(purchaseId: string) {
-    if (!window.confirm("Request a refund for this purchase? Access time from this pack will be removed.")) {
+    if (!window.confirm(t("Request a refund for this purchase? Access time from this pack will be removed."))) {
       return;
     }
     setBusyId(purchaseId);
@@ -69,9 +72,7 @@ export function PurchaseHistory({ purchases }: { purchases: PurchaseRow[] }) {
 
   if (!purchases.length) {
     return (
-      <p className="mt-4 text-sm text-[#65736d]">
-        No purchases yet. Packs you buy will show here with refund options for 24 hours.
-      </p>
+      <p className="mt-4 text-sm text-[#65736d]"><T>{"No purchases yet. Packs you buy will show here with refund options for 24 hours."}</T></p>
     );
   }
 
@@ -96,10 +97,10 @@ export function PurchaseHistory({ purchases }: { purchases: PurchaseRow[] }) {
             >
               <div className="min-w-0">
                 <p className="text-sm font-semibold">
-                  {packLabel(p.pack, p.days)} · {formatUsd(p.amountCents)}
+                  <T>{packLabel(p.pack, p.days)}</T> · {formatUsd(p.amountCents)}
                 </p>
                 <p className="mt-0.5 text-xs text-[#65736d]">
-                  {statusLabel(p.status)} ·{" "}
+                  <T>{statusLabel(p.status)}</T> ·{" "}
                   {new Intl.DateTimeFormat("en", {
                     dateStyle: "medium",
                     timeStyle: "short",
@@ -116,7 +117,7 @@ export function PurchaseHistory({ purchases }: { purchases: PurchaseRow[] }) {
                   onClick={() => void requestRefund(p.id)}
                   className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-full border border-[#17201e]/15 px-4 text-xs font-semibold disabled:opacity-60"
                 >
-                  {busyId === p.id ? "Requesting…" : "Request refund"}
+                  {busyId === p.id ? "Requesting…" : <T>{"Request refund"}</T>}
                 </button>
               ) : null}
             </li>

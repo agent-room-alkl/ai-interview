@@ -1,3 +1,4 @@
+import { hasPracticeAccess } from "@/lib/practice-access";
 // STT: POST /api/interview/[id]/transcribe  (multipart/form-data, field "audio")
 // Mainstream voice architecture: the browser captures the candidate's mic with
 // acoustic echo cancellation (so the AI's own TTS is removed from the input) and
@@ -34,6 +35,7 @@ export async function POST(
   if (!interview || interview.userId !== session.user.id) {
     return new Response("not_found", { status: 404 });
   }
+  if (!(await hasPracticeAccess(session.user.id))) return new Response("access_expired", { status: 403 });
 
   const form = await req.formData();
   const audio = form.get("audio");

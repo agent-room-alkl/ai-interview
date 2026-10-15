@@ -18,8 +18,9 @@ model User {
   resumeContext    String?
   /// Paid practice access expires at this time (UTC). Null = never purchased / expired.
   accessUntil      DateTime?
-  /// One free 10-minute trial session; set true when the trial interview is created.
+  /// Trial starts on first practice; trialEndsAt is an absolute 24-hour deadline.
   trialUsed        Boolean     @default(false)
+  trialEndsAt      DateTime?
   stripeCustomerId String?
   createdAt        DateTime    @default(now())
   interviews       Interview[]

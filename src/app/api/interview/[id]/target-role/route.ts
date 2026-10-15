@@ -40,6 +40,9 @@ export async function POST(
   if (!interview || interview.userId !== session.user.id) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
+  if (interview.status !== "draft" && interview.status !== "ready") {
+    return NextResponse.json({ error: "session_already_started" }, { status: 409 });
+  }
   // Optional language override chosen by the user on the role-selection screen.
   const langOverride =
     typeof language === "string" && language.trim()

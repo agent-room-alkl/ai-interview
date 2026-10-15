@@ -32,7 +32,7 @@ export async function fulfillPaidCheckoutSession(
   const purchaseId = meta.purchaseId;
   const days = Number(meta.days);
 
-  if (!userId || !isPackId(pack) || !Number.isFinite(days) || days <= 0) {
+  if (!userId || !pack || !(isPackId(pack) || pack === "day") || !Number.isFinite(days) || days <= 0) {
     console.error("[billing] fulfill missing metadata", sessionId);
     return { outcome: "skipped", accessUntil: null };
   }
@@ -118,15 +118,17 @@ export async function fulfillPaidCheckoutSession(
       };
     }
 
+    await tx.$queryRaw`SELECT "id" FROM "ai_interview"."User" WHERE "id" = ${userId} FOR UPDATE`;
     const user = await tx.user.findUnique({
       where: { id: userId },
-      select: { accessUntil: true },
+      select: { accessUntil: true, trialEndsAt: true },
     });
     if (!user) {
       throw new Error(`[billing] unknown user ${userId}`);
     }
 
-    const accessUntil = extendAccessUntil(user.accessUntil, days);
+    const base = user.trialEndsAt && (!user.accessUntil || user.trialEndsAt > user.accessUntil) ? user.trialEndsAt : user.accessUntil;
+    const accessUntil = extendAccessUntil(base, days);
     await tx.user.update({
       where: { id: userId },
       data: { accessUntil },
@@ -174,6 +176,7 @@ export async function fulfillPurchaseRefund(opts: {
       return { outcome: "already_refunded" as const };
     }
 
+    await tx.$queryRaw`SELECT "id" FROM "ai_interview"."User" WHERE "id" = ${purchase.userId} FOR UPDATE`;
     const user = await tx.user.findUnique({
       where: { id: purchase.userId },
       select: { accessUntil: true },

@@ -1,4 +1,6 @@
 "use client";
+import { T } from "@/components/LanguageProvider";
+
 // T-09: Scorecard UI + downloads (HTML file + print-to-PDF).
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -71,26 +73,24 @@ export default function ReportView({
     );
   if (!report)
     return (
-      <div className="mx-auto max-w-2xl p-8 text-gray-500 animate-pulse">
-        Scoring your interview…
-      </div>
+      <div className="mx-auto max-w-2xl p-8 text-gray-500 animate-pulse"><T>{"Scoring your interview…"}</T></div>
     );
 
   return (
     <div className="safe-px mx-auto max-w-3xl px-4 py-6 sm:p-6 print:p-0">
       <div className="mb-5 flex items-center justify-between print:hidden">
         <Link href="/" className="inline-flex"><Logo compact /></Link>
-        <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-900">Back to dashboard</Link>
+        <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-900"><T>{"Back to dashboard"}</T></Link>
       </div>
       <div className="flex flex-col gap-4 border-b-2 border-gray-900 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold sm:text-2xl">Interview Report</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl"><T>{"Interview Report"}</T></h1>
           <p className="mt-1 break-words text-sm text-gray-500">
             {candidateName} · {targetRole} · {mode}
           </p>
         </div>
         <div className="sm:text-right">
-          <div className="text-xs text-gray-500">Overall</div>
+          <div className="text-xs text-gray-500"><T>{"Overall"}</T></div>
           <div
             className="text-4xl font-bold sm:text-5xl"
             style={{ color: color(report.overallScore) }}
@@ -101,16 +101,16 @@ export default function ReportView({
       </div>
 
       <div className="mt-5 rounded-xl border p-4">
-        <b>Summary</b>
+        <b><T>{"Summary"}</T></b>
         <p className="mt-1 text-gray-700">{report.summary}</p>
       </div>
 
       <div className="mt-4 rounded-xl border p-4">
-        <b>Dimensions</b>
+        <b><T>{"Dimensions"}</T></b>
         {report.dimensions.map((d) => (
           <div key={d.name} className="mt-3">
             <div className="flex justify-between gap-3 font-medium">
-              <span className="min-w-0 break-words">{d.name}</span>
+              <span className="min-w-0 break-words"><T>{d.name}</T></span>
               <span className="shrink-0">{d.score}</span>
             </div>
             <div className="mt-1 h-2 overflow-hidden rounded bg-gray-200">
@@ -126,7 +126,7 @@ export default function ReportView({
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border p-4">
-          <b>Strengths</b>
+          <b><T>{"Strengths"}</T></b>
           <ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
             {report.strengths.map((s, i) => (
               <li key={i}>{s}</li>
@@ -134,7 +134,7 @@ export default function ReportView({
           </ul>
         </div>
         <div className="rounded-xl border p-4">
-          <b>Areas to improve</b>
+          <b><T>{"Areas to improve"}</T></b>
           <ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
             {report.improvements.map((s, i) => (
               <li key={i}>{s}</li>
@@ -147,22 +147,16 @@ export default function ReportView({
         <Link
           href="/dashboard"
           className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-medium"
-        >
-          Back to dashboard
-        </Link>
+        ><T>{"Back to dashboard"}</T></Link>
         <a
           href={`/api/interview/${interviewId}/report/html`}
           className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white"
-        >
-          Download HTML
-        </a>
+        ><T>{"Download HTML"}</T></a>
         <button
           type="button"
           onClick={() => window.print()}
           className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-medium"
-        >
-          Download PDF
-        </button>
+        ><T>{"Download PDF"}</T></button>
       </div>
     </div>
   );

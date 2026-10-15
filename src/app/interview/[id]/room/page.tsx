@@ -1,3 +1,4 @@
+import { hasPracticeAccess } from "@/lib/practice-access";
 // T-07: Interview room page (server guard). Loads interview + transcript.
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -24,6 +25,7 @@ export default async function RoomPage({
   if (!interview || interview.userId !== session.user.id) redirect("/dashboard");
   if (!interview.targetRole) redirect(`/interview/${id}/roles`);
   if (interview.status === "completed") redirect(`/interview/${id}/report`);
+  if (!(await hasPracticeAccess(session.user.id))) redirect("/pricing");
   if (interview.pausedAt) {
     return <PausedInterview interviewId={id} remainingSeconds={interview.pausedRemainingSeconds ?? 0} />;
   }

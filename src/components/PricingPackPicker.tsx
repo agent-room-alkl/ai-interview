@@ -1,4 +1,6 @@
 "use client";
+import { T, useLanguage } from "@/components/LanguageProvider";
+
 
 import Link from "next/link";
 import { useState } from "react";
@@ -25,6 +27,7 @@ export function PricingPackPicker({
   showFreeTrial = true,
   signupHref = "/signup",
 }: Props) {
+  const { t, language } = useLanguage();
   const [selected, setSelected] = useState<PackId | "trial">(
     showFreeTrial ? FEATURED_PACK_ID : FEATURED_PACK_ID,
   );
@@ -76,7 +79,7 @@ export function PricingPackPicker({
   return (
     <div
       className={`mt-8 grid gap-4 sm:grid-cols-2 ${
-        showFreeTrial ? "xl:grid-cols-4" : "md:grid-cols-3"
+        showFreeTrial ? "lg:grid-cols-3" : "md:grid-cols-2"
       }`}
     >
       {showFreeTrial ? (
@@ -95,17 +98,15 @@ export function PricingPackPicker({
           onMouseEnter={() => setHovered("trial")}
           onMouseLeave={() => setHovered(null)}
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#65736d]">
-            Free trial
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#65736d]"><T>{"Free trial"}</T></p>
           <p className="mt-4 text-3xl font-semibold tracking-[-0.05em]">$0</p>
-          <p className="mt-1 text-sm text-[#65736d]">1× 10 minutes</p>
+          <p className="mt-1 text-sm text-[#65736d]"><T>{"24 hours from first practice"}</T></p>
           <ul className="mt-4 flex-1 space-y-2 text-sm leading-6 text-[#65736d]">
-            <li>· One trial session per account</li>
-            <li>· AI interviewer (voice)</li>
-            <li>· AI practice coach</li>
-            <li>· Résumé-aware questions</li>
-            <li>· 20 / 30 min unlock after purchase</li>
+            <li><T>{"· Unlimited sessions for 24 hours"}</T></li>
+            <li><T>{"· AI interviewer (voice)"}</T></li>
+            <li><T>{"· AI practice coach"}</T></li>
+            <li><T>{"· Résumé-aware questions"}</T></li>
+            <li><T>{"· Includes 10 / 20 / 30 min sessions"}</T></li>
           </ul>
           <Link
             href={signedIn ? trialHref : signupHref}
@@ -115,9 +116,7 @@ export function PricingPackPicker({
                 : "border border-[#17201e]/15 hover:bg-[#17201e]/5"
             }`}
             onClick={(e) => e.stopPropagation()}
-          >
-            Start free trial
-          </Link>
+          ><T>{"Start free trial"}</T></Link>
         </article>
       ) : null}
 
@@ -145,25 +144,25 @@ export function PricingPackPicker({
             <p
               className={`text-xs font-semibold uppercase tracking-[0.14em] ${labelClass(id)}`}
             >
-              {pack.name}
-              {isFeatured ? " · best value" : ""}
+              <T>{pack.name}</T>
+              {isFeatured ? (language === "zh" ? " · 推荐" : " · recommended") : ""}
             </p>
             <p className="mt-4 text-3xl font-semibold tracking-[-0.05em]">
               {formatUsd(pack.amountCents)}
             </p>
             <p className={`mt-1 text-sm ${muted(id)}`}>
-              {pack.days} day{pack.days === 1 ? "" : "s"} access · one-time
+              {pack.days}{language === "zh" ? " 天权限 · 一次性付费" : " days access · one-time"}
             </p>
             <ul className={`mt-4 flex-1 space-y-2 text-sm leading-6 ${bodyMuted(id)}`}>
               {pack.features.map((line) => (
-                <li key={line}>· {line}</li>
+                <li key={line}>· <T>{line}</T></li>
               ))}
             </ul>
             <div className="mt-6" onClick={(e) => e.stopPropagation()}>
               {signedIn ? (
                 <BuyPackButton
                   pack={id}
-                  label={`Buy ${pack.name} — ${formatUsd(pack.amountCents)}`}
+                  label={`${language === "zh" ? "购买" : "Buy"} ${t(pack.name)} — ${formatUsd(pack.amountCents)}`}
                   className={
                     isSelected
                       ? "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#d7f16a] px-5 py-3 text-sm font-semibold text-[#17201e] disabled:opacity-60"
@@ -179,7 +178,7 @@ export function PricingPackPicker({
                       : "inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#17201e] px-5 py-3 text-sm font-semibold text-[#f6f5f0]"
                   }
                 >
-                  Buy {pack.name}
+                  Buy <T>{pack.name}</T>
                 </Link>
               )}
             </div>
